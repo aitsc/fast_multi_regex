@@ -9,7 +9,7 @@ else:
 
 setup(
     name='fast_multi_regex',
-    version='0.5',
+    version='0.6',
     description="",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -40,5 +40,5 @@ setup(
             'fast_multi_regex_server=fast_multi_regex.server:app_server',  # 包不能有-符号
         ],
     },
-    python_requires='>=3.7',
+    python_requires='>=3.9',
 )

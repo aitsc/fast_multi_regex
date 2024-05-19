@@ -14,17 +14,49 @@ from tsc_base import replace
 import re
 
 
+class FlagExt(BaseModel):
+    min_offset: Optional[int] = Field(None, ge=0, description='最小偏移量, 匹配的结束位置大于等于这个，None 代表不使用')
+    max_offset: Optional[int] = Field(None, ge=0, description='最大偏移量, 匹配的结束位置小于等于这个，None 代表不使用')
+    min_length: Optional[int] = Field(None, ge=0, description='最小长度，匹配的长度要大于等于这个，None 代表不使用')
+    edit_distance: Optional[int] = Field(None, ge=0, description='在给定的编辑距离(用于计算从一个字符串转换到另一个字符串所需要的最少单字符编辑操作数)内匹配此表达式，None 代表不使用')
+    hamming_distance: Optional[int] = Field(None, ge=0, description='在给定的汉明距离(计算在相同位置上字符不同的数量,只适用于长度相同的字符串)内匹配此表达式，None 代表不使用')
+    
+    def to_ext(self) -> hyperscan.ExpressionExt:
+        flags = 0
+        if self.min_offset is not None:
+            flags |= hyperscan.HS_EXT_FLAG_MIN_OFFSET
+        if self.max_offset is not None:
+            flags |= hyperscan.HS_EXT_FLAG_MAX_OFFSET
+        if self.min_length is not None:
+            flags |= hyperscan.HS_EXT_FLAG_MIN_LENGTH
+        if self.edit_distance is not None:
+            flags |= hyperscan.HS_EXT_FLAG_EDIT_DISTANCE
+        if self.hamming_distance is not None:
+            flags |= hyperscan.HS_EXT_FLAG_HAMMING_DISTANCE
+        return hyperscan.ExpressionExt(
+            flags=flags,
+            min_offset=self.min_offset or 0,
+            max_offset=self.max_offset or 0,
+            min_length=self.min_length or 0,
+            edit_distance=self.edit_distance or 0,
+            hamming_distance=self.hamming_distance or 0,
+        )
+
+
 class OneRegex(BaseModel):
     expression: str = Field(..., description="正则表达式, 或编号的布尔组合（搭配HS_FLAG_COMBINATION）")
-    flag: int = Field(hyperscan.HS_FLAG_SINGLEMATCH, ge=0, description='''hyperscan 匹配标志，代码运算时可以使用 | 连接多个标志进行组合, 一些例子：
+    flag: int = Field(hyperscan.HS_FLAG_SINGLEMATCH | hyperscan.HS_FLAG_UTF8, ge=0, description='''hyperscan 匹配标志，代码运算时可以使用 | 连接多个标志进行组合, 一些例子：
 HS_FLAG_CASELESS 1: 不区分大小写；
 HS_FLAG_DOTALL 2: . 匹配所有字符，包括换行符；
 HS_FLAG_MULTILINE 4: 使用多行模式, 每行的开头和结尾都可以去匹配^和$；
 HS_FLAG_SINGLEMATCH 8: 只匹配第一个匹配项，如果只用于 match_first 不设置这个会更快；
 HS_FLAG_ALLOWEMPTY 16: 允许query是空的匹配；
+HS_FLAG_UTF8 32: 以字符为单位匹配，而不是字节，例如一个汉字是一个字符，而不是当成三个字节来匹配；
+HS_FLAG_UCP 64: 必须配合 HS_FLAG_UTF8 使用，启用 Unicode 属性，例如使用后 \w 也会匹配汉字，\s 也会匹配多种空白字符；
 HS_FLAG_SOM_LEFTMOST 256: 匹配返回开始位置，性能更慢, 和 HS_FLAG_SINGLEMATCH 不能同时使用；
 HS_FLAG_COMBINATION 512: 用于组合多个正则表达式，此时 expression 可以使用 & | ! ( ) 组合多个正则表达式编号，编号为正则在 regexs 中的索引号，或者 mark.索引号。例如 "(0|1)&2" 或 "test.0|test.1&test.2"，编号必须出现在此正则编译之前, expression 不能只是单个编号；
 HS_FLAG_QUIET 1024: 不输出匹配结果, 应当配合 HS_FLAG_COMBINATION 使用（例如隐藏子正则），否则请注意会影响上层包裹的其他逻辑判断''')
+    flag_ext: Optional[FlagExt] = Field(None, description='扩展标志, 用于匹配时的额外限制')  # literal=True 时不参与去重复
     # 以下参数不会作为计算 OneRegex 重复的一部分
     min_match_count: int = Field(1, ge=1, description='最少匹配次数, 必须大于等于1，大于1不能含 HS_FLAG_SINGLEMATCH 标志。约束应用在 match_strict 中，因此没有这种场景这种正则不建议出现在很多 OneTarget 里面，防止匹配次数过多对 match_all 性能产生影响')
     max_match_count: int = Field(0, ge=0, description='最多匹配次数, 必须大于等于0，0 代表不限制, 不为0不能含 HS_FLAG_SINGLEMATCH 标志')
@@ -60,7 +92,8 @@ class MultiRegexMatcherInfo(BaseModel):
     # other
     hyperscan_size: int = Field(0, description='hyperscan 数据库大小, 单位字节')
     hyperscan_info: str = Field("", description='hyperscan 数据库信息')
-    
+    literal: bool = Field(False, description='是否只有字面量正则，把所有 expression 都当作普通字符匹配，flag/ext 全部失效')
+
 
 class OneFindRegex(BaseModel):
     regex_id: int = Field(..., description='正则在数据库中的 ID')
@@ -217,12 +250,17 @@ class MultiRegexMatcher:
     def compile(
         self,
         targets: list[Union[OneTarget, dict]] = None,
+        literal: bool = False,
     ) -> bool:
         """编译正则表达式，编译失败不会影响已有的编译结果，该实例可正常使用
 
         Args:
             targets (list[Union[OneTarget, dict]]): 一组正则表达式，会深拷贝，后出现的相同mark会覆盖前面的
                 有 self._mark_target_lazy 会放在 targets 前面, 使用后会清空
+            literal (bool, optional): 是否只有字面量正则，把所有 expression 都当作普通字符匹配，部分flag和所有ext失效
+                编译可能快100倍, 匹配可能快10倍
+                literal 为 True 会导致 targets 重复判定可能不准确，因为忽略的 ext 也是重复判定的一部分
+                Only HS_FLAG_CASELESS, HS_FLAG_SINGLEMATCH and HS_FLAG_SOM_LEFTMOST are supported in literal API
 
         Returns:
             bool: 是否重新编译
@@ -235,7 +273,10 @@ class MultiRegexMatcher:
         # 转换为 OneTarget 对象
         targets = [OneTarget(**target) if isinstance(target, dict) else target for target in targets]
         mark_target = {t.mark: t for t in targets}  # 用 mark 作为 key, 保持编译顺序
-        if list(mark_target.items()) == list(self._mark_target.items()):  # 如果和上次一样就不重新编译
+        if (  # 如果和上次一样就不重新编译
+            list(mark_target.items()) == list(self._mark_target.items())
+            and literal == self._info.literal
+        ):
             return False
         mark_target = deepcopy(mark_target)  # 防止 target 后续修改
         expression_id_pattern = re.compile(r'[^&|!() ]+')  # 匹配 expression 的id变量
@@ -247,10 +288,11 @@ class MultiRegexMatcher:
         expression_find_regexs = {}
         # 临时变量
         mark_no_id: dict[tuple[str, int], int] = {}
-        expr_flag_id: dict[tuple[str, int], int] = {}
+        expr_flag_ext_id: dict[tuple[str, int, hyperscan.ExpressionExt], int] = {}
         expressions: list[bytes] = []
         flags: list[int] = []
         ids: list[int] = []
+        exts: list[hyperscan.ExpressionExt] = []
         for t in mark_target.values():
             assert t.regexs, f"{t.mark}.regexs: Can not be empty"
             assert t.min_regex_count >= 0, f"{t.mark}.min_regex_count: Not satisfied with {t.min_regex_count} >= 0"
@@ -266,12 +308,14 @@ class MultiRegexMatcher:
                     # r.flag &= ~hyperscan.HS_FLAG_SINGLEMATCH  # 主动修改会影响重复编译判定
                     assert r.flag & hyperscan.HS_FLAG_SINGLEMATCH == 0, f"{t.mark}-{no}.flag: Can not contain HS_FLAG_SINGLEMATCH"
                     self._mark_has_match_count_limit[t.mark] = True
-                if (r.expression, r.flag) in expr_flag_id:
-                    _id = expr_flag_id[(r.expression, r.flag)]
+                ext = r.flag_ext.to_ext() if r.flag_ext and not literal else hyperscan.ExpressionExt(flags=0)
+                if (r.expression, r.flag, ext) in expr_flag_ext_id:
+                    _id = expr_flag_ext_id[(r.expression, r.flag, ext)]
                 else:
-                    _id = expr_flag_id[(r.expression, r.flag)] = len(expr_flag_id)
+                    _id = expr_flag_ext_id[(r.expression, r.flag, ext)] = len(expr_flag_ext_id)
                     ids.append(_id)
                     flags.append(r.flag)
+                    exts.append(ext)
                     # 替换 expression 中的编号
                     if r.flag & hyperscan.HS_FLAG_COMBINATION:
                         expression = replace(
@@ -296,7 +340,7 @@ class MultiRegexMatcher:
                 find_regex.mark_count = len(id_mark[find_regex.regex_id])
                 find_regex.first_mark, find_regex.first_mark_no = next(iter(id_mark_no[find_regex.regex_id]))
         # 编译
-        self._db.compile(expressions=expressions, ids=ids, flags=flags)
+        self._db.compile(expressions=expressions, ids=ids, flags=flags, literal=literal, ext=exts)
         self._mark_target_no = {t.mark: no for no, t in enumerate(sorted(mark_target.values(), key=lambda t: t.priority))}
         self._mark_bool_info = mark_bool_info
         self._mark_init_bool_true = mark_init_bool_true
@@ -307,6 +351,7 @@ class MultiRegexMatcher:
         self._mark_target_lazy.clear()
         self.reset_cache()
         # 统计信息
+        self._info.literal = literal
         self._info.hyperscan_size = self._db.size()
         self._info.hyperscan_info = self._db.info()
         if isinstance(self._info.hyperscan_info, bytes):

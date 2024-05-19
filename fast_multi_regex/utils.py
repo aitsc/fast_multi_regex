@@ -139,15 +139,16 @@ def file_processor_matchers_update(
             config: dict = json.load(f)
         if not config.get('targets'):
             return None
-        cache_size = config.get('cache_size')
+        cache_size = config.get('cache_size', 128)
+        literal = config.get('literal', False)
         if name in matchers:
-            success |= matchers[name].compile(config['targets'])
+            success |= matchers[name].compile(config['targets'], literal=literal)
             if cache_size != matchers[name].info.cache_size:
                 matchers[name].reset_cache(cache_size)
                 success = True
         else:
             matchers[name] = MultiRegexMatcher(cache_size)
-            matchers[name].compile(config['targets'])
+            matchers[name].compile(config['targets'], literal=literal)
             success = True
         if success:
             os.makedirs(os.path.dirname(pkl_path), exist_ok=True)

@@ -1,5 +1,4 @@
 from fast_multi_regex import *
-from fast_multi_regex.server import app_server
 import time
 import pickle
 import hyperscan
@@ -195,8 +194,8 @@ def test_update():
 
 
 if __name__ == '__main__':
-    # test_matcher()
+    test_matcher()
     # test_utils()
     # test_api()
     # test_update()
-    app_server()
+    # app_server()
