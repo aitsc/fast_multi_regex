@@ -35,6 +35,8 @@ def file_processor(
     opt: Literal['modified', 'created', 'deleted'],
     context: dict,
 ):
+    if not (path.endswith('.pkl') and path[-1] != '.'):
+        return
     matchers_folder: str = context['matchers_folder']
     matchers: dict[str, MultiRegexMatcher] = context['matchers']
     name = os.path.splitext(os.path.relpath(path, matchers_folder))[0]
@@ -96,38 +98,38 @@ async def post_match(body: BodyMatch):
     for i, q in enumerate(qs):
         if q.db not in global_matchers:
             return RespMatch(message=f"qs{i}: db '{q.db}' not found", status=1)
-        one_result: list[OneMatchMark] = []
+        one_result: list[dict] = []  # list[OneMatchMark]
+                        
+        if q.method == 'first':
+            match = global_matchers[q.db].match_first(q.query)
+            if match:
+                one_result.append({'mark': match[0], 'matches': [match[1]], 'match_count': 1})
         
-        if q.method == 'all':
+        elif q.method == 'all':
             matches = global_matchers[q.db].match_all(q.query, q.is_sort, q.detailed_level, q.match_top_n)
             if isinstance(matches, list):
-                one_result += [OneMatchMark(mark=m) for m in matches]
+                one_result += [{'mark': m} for m in matches]
             else:
                 for mark, v in matches.items():
                     if isinstance(v, int):
-                        one_result.append(OneMatchMark(mark=mark, match_count=v))
+                        one_result.append({'mark': mark, 'match_count': v})
                     else:
-                        one_result.append(OneMatchMark(mark=mark, matches=v, match_count=len(v)))
-                        
-        elif q.method == 'first':
-            match = global_matchers[q.db].match_first(q.query)
-            if match:
-                one_result.append(OneMatchMark(mark=match[0], matches=[OneMatch(**match[1])]))
+                        one_result.append({'mark': mark, 'matches': v, 'match_count': len(v)})
                 
         elif q.method == 'strict':
             matches = global_matchers[q.db].match_strict(q.query, q.is_sort)
             for mark, v in matches.items():
-                one_result.append(OneMatchMark(mark=mark, matches=v, match_count=len(v)))
+                one_result.append({'mark': mark, 'matches': v, 'match_count': len(v)})
                 
         else:
             return RespMatch(message=f"qs{i}: method '{q.method}' not found", status=1)
         
         for om in one_result:
             if q.detailed_level == 1:
-                om.matches = None
-                om.match_count = None
+                om['matches'] = None
+                om['match_count'] = None
             elif q.detailed_level == 2:
-                om.matches = None
+                om['matches'] = None
         result.append(one_result)
     return RespMatch(result=result, milliseconds=(time.time() - start) * 1000)
 

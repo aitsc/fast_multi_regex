@@ -9,27 +9,6 @@ fast_multi_regex_server --help
 fast_multi_regex_server
 ```
 
-访问 `http://127.0.0.1:8000/docs` 查看接口文档，接口访问例子：
-```shell
-curl -X 'POST' \
-  'http://127.0.0.1:8000/match' \
-  -H 'accept: application/json' \
-  -H 'Authorization: Bearer test' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "qs": [
-    {
-      "query": "test",
-      "db": "default",
-      "method": "strict",
-      "is_sort": true,
-      "detailed_level": 2,
-      "match_top_n": 0
-    }
-  ]
-}'
-```
-
 构建正则库，matchers_config_folder 内 json 文件例子：
 ```json
 {
@@ -52,6 +31,27 @@ curl -X 'POST' \
         }
     ]
 }
+```
+
+访问 `http://127.0.0.1:8000/docs` 查看接口文档，接口访问例子：
+```shell
+curl -X 'POST' \
+  'http://127.0.0.1:8000/match' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer test' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "qs": [
+    {
+      "query": "test",
+      "db": "default",
+      "method": "strict",
+      "is_sort": true,
+      "detailed_level": 2,
+      "match_top_n": 0
+    }
+  ]
+}'
 ```
 
 直接调包使用：

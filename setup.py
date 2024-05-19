@@ -9,7 +9,7 @@ else:
 
 setup(
     name='fast_multi_regex',
-    version='0.3',
+    version='0.4',
     description="",
     long_description=long_description,
     long_description_content_type="text/markdown",

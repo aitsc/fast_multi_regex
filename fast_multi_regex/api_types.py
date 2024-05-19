@@ -17,12 +17,12 @@ class OneMatch(BaseModel):
 class OneMatchMark(BaseModel):
     mark: str = Field(..., description='匹配到的正则组')
     matches: Optional[list[OneMatch]] = Field(None, description='匹配到具体正则的详细信息')
-    match_count: Optional[int] = Field(None, description='匹配到的正则次数')
+    match_count: Optional[int] = Field(None, description='停止匹配前匹配到的正则次数')
 
 
 class OneQuery(BaseModel):
     query: str = Field(..., description='待匹配的字符串')
-    db: str = Field('default', description='匹配的正则库 name')
+    db: str = Field('default', description='匹配的正则库 name，一般是相对于 matchers_folder 的pkl路径(无后缀名)')
     method: Literal['first', 'all', 'strict'] = Field('strict', description='匹配方法，first: 只返回第一个匹配，all: 返回所有匹配，strict: 严格匹配')
     is_sort: bool = Field(True, description='是否按照正则库中出现顺序返回，适用于 method=all/strict')
     detailed_level: Literal[1, 2, 3] = Field(2, description='1: 只返回 mark, 2: 返回 mark 和出现次数, 3: 返回详细 OneMatch')

@@ -37,7 +37,7 @@ log_config = {
 }
 
 
-def main():
+def app_server():
     parser = argparse.ArgumentParser(
         description="fast_multi_regex server",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -77,4 +77,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    app_server()

@@ -126,6 +126,8 @@ def file_processor_matchers_update(
     Returns:
         str: 输出信息
     """
+    if not (path.endswith('.json') and path[-1] != '.'):
+        return
     matchers_folder: str = context['matchers_folder']
     matchers_config_folder: str = context['matchers_config_folder']
     matchers: dict[str, MultiRegexMatcher] = context['matchers']
@@ -134,14 +136,17 @@ def file_processor_matchers_update(
     success = False
     if opt == 'modified' or opt == 'created':
         with open(path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+            config: dict = json.load(f)
+        if not config.get('targets'):
+            return None
+        cache_size = config.get('cache_size')
         if name in matchers:
             success |= matchers[name].compile(config['targets'])
-            if config['cache_size'] != matchers[name].info.cache_size:
-                matchers[name].reset_cache(config['cache_size'])
+            if cache_size != matchers[name].info.cache_size:
+                matchers[name].reset_cache(cache_size)
                 success = True
         else:
-            matchers[name] = MultiRegexMatcher(config['cache_size'])
+            matchers[name] = MultiRegexMatcher(cache_size)
             matchers[name].compile(config['targets'])
             success = True
         if success:
