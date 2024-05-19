@@ -1,0 +1,9 @@
+.idea/
+dist/
+build/
+*.egg-info/
+__pycache__/
+test_*
+log/
+*.pkl
+data

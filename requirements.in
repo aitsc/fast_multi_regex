@@ -1,0 +1,10 @@
+pip-tools
+hyperscan
+pydantic
+pyeda
+tsc_base
+fastapi
+uvicorn
+watchdog
+asyncio
+requests
