@@ -69,7 +69,11 @@ async def startup():
     )
 
 
-app = FastAPI()
+app = FastAPI(
+    title='fast-multi-regex',
+    summary='A fast multi regex matcher',
+    description='快速多正则和布尔表达式匹配，支持热更新正则库',
+)
 app.add_event_handler("startup", startup)
 security = HTTPBearer()
 
