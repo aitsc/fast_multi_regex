@@ -97,7 +97,7 @@ class MultiRegexMatcherInfo(BaseModel):
 
 class OneFindRegex(BaseModel):
     regex_id: int = Field(..., description='正则在数据库中的 ID')
-    regex: OneRegex = Field(..., description='第一个正则, expression/flag 唯一，其他属性供参考')
+    regex: OneRegex = Field(..., description='第一个正则, expression/flag 唯一(以及literal=False下的flag_ext)，其他属性供参考')
     mark_count: int = Field(None, description='包含的 mark 数量')
     first_mark: str = Field(None, description='包含的第一个 mark，compile 的 targes 顺序')
     first_mark_no: int = Field(None, description='first_mark 中在 regexs 中的索引号')
