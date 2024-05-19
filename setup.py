@@ -9,7 +9,7 @@ else:
 
 setup(
     name='fast_multi_regex',
-    version='0.4',
+    version='0.5',
     description="",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -37,7 +37,7 @@ setup(
     ],
     entry_points={  # 打包到bin
         'console_scripts': [
-            'fast_multi_regex_server=fast_multi_regex.server:main',  # 包不能有-符号
+            'fast_multi_regex_server=fast_multi_regex.server:app_server',  # 包不能有-符号
         ],
     },
     python_requires='>=3.7',
