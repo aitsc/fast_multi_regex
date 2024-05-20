@@ -12,7 +12,21 @@ import asyncio
 import requests
 import time
 import json
-from .matcher import MultiRegexMatcher
+from .matcher import MultiRegexMatcher, FlagExt, OneRegex, OneTarget
+
+
+def model_to_dict(model: Optional[Union[BaseModel, dict]], **kwargs) -> dict:
+    """
+    Convert a Pydantic model to a dictionary, compatible with both Pydantic 1.x and 2.x.
+    """
+    if isinstance(model, (dict, type(None))):
+        return model
+    try:
+        # Try using Pydantic 2.x method
+        return model.model_dump(**kwargs)
+    except AttributeError:
+        # Fallback to Pydantic 1.x method
+        return model.dict(**kwargs)
 
 
 def load_matchers(folder: str) -> dict[str, MultiRegexMatcher]:
@@ -139,16 +153,17 @@ def file_processor_matchers_update(
             config: dict = json.load(f)
         if not config.get('targets'):
             return None
-        cache_size = config.get('cache_size', 128)
+        cache_size = config.get('cache_size')
         literal = config.get('literal', False)
         if name in matchers:
             success |= matchers[name].compile(config['targets'], literal=literal)
-            if cache_size != matchers[name].info.cache_size:
+            if cache_size is not None and cache_size != matchers[name].info.cache_size:
                 matchers[name].reset_cache(cache_size)
                 success = True
         else:
-            matchers[name] = MultiRegexMatcher(cache_size)
+            matchers[name] = MultiRegexMatcher()
             matchers[name].compile(config['targets'], literal=literal)
+            matchers[name].reset_cache(cache_size)
             success = True
         if success:
             os.makedirs(os.path.dirname(pkl_path), exist_ok=True)
@@ -163,12 +178,28 @@ def file_processor_matchers_update(
         return f'file_processor_matchers_update: "{name}" {opt}'
 
 
+matcher_config_example = {
+    "cache_size": 128,  # 缓存大小
+    "literal": False,  # 是否使用字面量匹配（正则当作普通字符匹配）
+    "targets": [
+        model_to_dict(OneTarget(
+            mark="example",  # 正则组名称，不能重复
+            regexs=[OneRegex(
+                expression='例子',  # 正则
+                flag_ext=FlagExt(),
+            )],
+        )),
+    ]
+}
+
+
 def update_matchers_folder(
     matchers_folder: str,
     matchers_config_folder: str,
     delay: int = 30,
     create_folder: bool = True,
     blocking: bool = False,
+    default_matcher_config: dict = matcher_config_example,
 ) -> dict[str, MultiRegexMatcher]:
     """初始化 matchers 文件夹，创建 DelayedFilesHandler 监控配置文件夹, 根据配置变动实时更新 matchers 文件夹
 
@@ -178,6 +209,7 @@ def update_matchers_folder(
         delay (int, optional): 配置文件这么多秒后不再修改才会更新到匹配器文件夹
         create_folder (bool, optional): 是否自动创建文件夹
         blocking (bool, optional): 是否阻塞
+        default_matcher_config (dict, optional): 默认配置, 当没有匹配器时且有这个变量会自动写入这个 default.json
 
     Returns:
         dict[str, MultiRegexMatcher]: 加载的 matchers
@@ -186,6 +218,26 @@ def update_matchers_folder(
         os.makedirs(matchers_folder, exist_ok=True)
         os.makedirs(matchers_config_folder, exist_ok=True)
     matchers = load_matchers(matchers_folder)
+    
+    # 写入默认配置
+    default_json = os.path.join(matchers_config_folder, 'default.json')
+    if (
+        not matchers and 
+        default_matcher_config and 
+        default_matcher_config.get('targets')
+    ):
+        matchers['default'] = MultiRegexMatcher()
+        matchers['default'].compile(
+            default_matcher_config['targets'],
+            literal=default_matcher_config.get('literal', False),
+        )
+        matchers['default'].reset_cache(default_matcher_config.get('cache_size'))
+        with open(default_json, 'w', encoding='utf-8') as f:
+            json.dump(default_matcher_config, f, ensure_ascii=False, indent=4)
+        with open(os.path.join(matchers_folder, 'default.pkl'), 'wb') as f:
+            pickle.dump(matchers['default'], f)
+    
+    # 监控配置文件夹
     print('file_processor_matchers_update: init matchers:', list(matchers))
     obj = DelayedFilesHandler(
         matchers_config_folder, 
@@ -231,7 +283,7 @@ async def async_request(
             message (str): 返回信息
             status (int): 状态码
     """
-    body = body if isinstance(body, (dict, type(None))) else dict(body)
+    body = model_to_dict(body)
     if token:
         if not headers:
             headers = {'Content-Type': 'application/json'}
@@ -285,7 +337,7 @@ def sync_request(
             message (str): 返回信息
             status (int): 状态码
     """
-    body = body if isinstance(body, (dict, type(None))) else dict(body)
+    body = model_to_dict(body)
     if token:
         if not headers:
             headers = {'Content-Type': 'application/json'}

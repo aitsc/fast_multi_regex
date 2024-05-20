@@ -166,11 +166,11 @@ class MultiRegexMatcher:
             setattr(self, k, v)
         self.reset_cache()
     
-    def reset_cache(self, cache_size: int = None) -> bool:
+    def reset_cache(self, cache_size: Optional[int] = None) -> bool:
         """重置缓存
 
         Args:
-            cache_size (int, optional): 修改后的缓存大小. 为 None、小于等于0不使用缓存
+            cache_size (int, optional): 修改后的缓存大小. 为 None/小于0 不修改原始缓存大小，等于0不使用缓存
 
         Returns:
             bool: 是否修改成功

@@ -10,18 +10,25 @@ fast_multi_regex_server --help
 fast_multi_regex_server
 ```
 
-构建正则库，matchers_config_folder 内 json 文件例子（参考 OneTarget 格式和 file_processor_matchers_update 方法解析）：
+构建正则库，即增删改 matchers_config_folder 中的 json 文件（允许子文件夹嵌套），例子（参考 matcher_config_example）：
 ```json
 {
     "cache_size": 128,
     "literal": false,
     "targets": [
         {
-            "mark": "test",
+            "mark": "example",
             "regexs": [
                 {
-                    "expression": "test",
+                    "expression": "例子",
                     "flag": 40,
+                    "flag_ext": {
+                        "min_offset": null,
+                        "max_offset": null,
+                        "min_length": null,
+                        "edit_distance": null,
+                        "hamming_distance": null
+                    },
                     "min_match_count": 1,
                     "max_match_count": 0
                 }

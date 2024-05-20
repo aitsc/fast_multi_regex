@@ -12,6 +12,7 @@ from .utils import (
     update_matchers_folder,
     async_request,
     sync_request,
+    matcher_config_example,
 )
 from .api_types import (
     OneMatch,
@@ -26,4 +27,4 @@ from .api_types import (
     RespFindExpression,
 )
 from .api import app
-from .server import app_server
+from .server import app_server, log_config
