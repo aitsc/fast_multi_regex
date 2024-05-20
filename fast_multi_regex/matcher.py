@@ -17,7 +17,7 @@ import re
 class FlagExt(BaseModel):
     min_offset: Optional[int] = Field(None, ge=0, description='最小偏移量, 匹配的结束位置大于等于这个，None 代表不使用')
     max_offset: Optional[int] = Field(None, ge=0, description='最大偏移量, 匹配的结束位置小于等于这个，None 代表不使用')
-    min_length: Optional[int] = Field(None, ge=0, description='最小长度，匹配的长度要大于等于这个，None 代表不使用')
+    min_length: Optional[int] = Field(None, ge=0, description='最小长度，匹配到的长度要大于等于这个，None 代表不使用')
     edit_distance: Optional[int] = Field(None, ge=0, description='在给定的编辑距离(用于计算从一个字符串转换到另一个字符串所需要的最少单字符编辑操作数)内匹配此表达式，None 代表不使用')
     hamming_distance: Optional[int] = Field(None, ge=0, description='在给定的汉明距离(计算在相同位置上字符不同的数量,只适用于长度相同的字符串)内匹配此表达式，None 代表不使用')
     
@@ -67,7 +67,7 @@ class OneTarget(BaseModel):
     regexs: list[OneRegex] =Field(..., description='多个正则之间是或匹配关系')
     min_regex_count: int = Field(1, ge=0, description='regexs 最少需要满足的正则数量，必须大于等于0，考虑这个速度慢，要用 match_strict 调用才能生效，否则就是1。0 代表全部要满足')
     max_regex_count: int = Field(0, ge=0, description='regexs 最多允许满足的正则数量, 必须大于等于0。0 代表不限制')
-    bool_expr: str = Field('', description='逻辑表达式，用于 match_strict 的时候，为空则不使用，使用的话 regex_count 限制不再使用，语法见 pyeda.parsing.boolexpr.GRAMMAR, 变量名为字母 r 加上正则在 regexs 中的索引号，例如 r0, r1, r2，所有正则索引都要覆盖到')
+    bool_expr: str = Field('', description='逻辑表达式，用于 match_strict 的时候，为空则不使用，使用的话 regex_count 限制不再使用，语法见 pyeda.parsing.boolexpr.GRAMMAR，支持 => <=> :? ^ & | ~ () 运算符, 变量名为字母 r 加上正则在 regexs 中的索引号，例如 r0, r1, r2，所有正则索引都要覆盖到')
     priority: float = Field(1, description='优先级, 越小越优先返回 (在 match_all 中 sorted 为 True 的时候, 不影响正则编译顺序), 默认是 OneTarget 列表的顺序')
 
 
@@ -77,6 +77,7 @@ class MultiRegexMatcherInfo(BaseModel):
     last_compile_date: str = Field("", description='最后一次编译时间')
     # 编译统计
     compile_count: int = Field(0, description='编译次数')
+    original_target_count: int = Field(0, description='compile 传入的目标数量，可以用于检查重复数量')
     target_count: int = Field(0, description='目标数量')
     regex_count: int = Field(0, description='正则数量')
     unique_regex_count: int = Field(0, description='唯一正则数量')
@@ -92,7 +93,7 @@ class MultiRegexMatcherInfo(BaseModel):
     # other
     hyperscan_size: int = Field(0, description='hyperscan 数据库大小, 单位字节')
     hyperscan_info: str = Field("", description='hyperscan 数据库信息')
-    literal: bool = Field(False, description='是否只有字面量正则，把所有 expression 都当作普通字符匹配，flag/ext 全部失效')
+    literal: bool = Field(False, description='是否只有字面量正则，把所有 expression 都当作普通字符匹配， HS_FLAG_CASELESS, HS_FLAG_SINGLEMATCH, HS_FLAG_SOM_LEFTMOST 以外 flag/ext 失效')
 
 
 class OneFindRegex(BaseModel):
@@ -365,6 +366,7 @@ class MultiRegexMatcher:
         self._info.has_bool_expr_count = sum(bool(bool_info) for bool_info in self._mark_bool_info.values())
         self._info.init_bool_true_count = len(self._mark_init_bool_true)
         self._info.compile_count += 1
+        self._info.original_target_count = len(targets)
         self._info.target_count = len(self._mark_target)
         self._info.regex_count = sum(len(t.regexs) for t in self._mark_target.values())
         self._info.unique_regex_count = len(self._id_mark)

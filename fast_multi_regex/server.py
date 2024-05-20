@@ -39,7 +39,7 @@ log_config = {
 
 def app_server():
     parser = argparse.ArgumentParser(
-        description="fast_multi_regex server",
+        description="fast_multi_regex server: https://github.com/aitsc/fast_multi_regex",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--api_tokens", type=str, default="test", help="API token，多个用英文逗号分隔")
