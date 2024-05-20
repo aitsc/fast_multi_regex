@@ -12,6 +12,7 @@ import asyncio
 import requests
 import time
 import json
+import logging
 from .matcher import MultiRegexMatcher, FlagExt, OneRegex, OneTarget
 
 
@@ -60,6 +61,7 @@ class DelayedFilesHandler(FileSystemEventHandler):
         ] = lambda p, o: f'event: {p}, {o}',
         context: Any = None,
         delay: float = 3, 
+        logger: Optional[logging.Logger] = None,
     ):
         """延迟处理文件变化事件，使用多线程实现延迟，不适合大量文件变化
 
@@ -68,9 +70,11 @@ class DelayedFilesHandler(FileSystemEventHandler):
             file_handler (Callable[ [str, Literal['modified', 'created', 'deleted'], Any], Any, ], optional): 处理文件变化事件的函数, 输入 (path, opt, context), 输出 str (如果不为空用于print)
             context (Any, optional): 传递给 file_handler 的额外参数
             delay (float, optional): 延迟处理时间, 单位秒
+            logger (Optional[logging.Logger], optional): 日志记录器, 否则使用 print
         """
         assert os.path.isdir(folder), f"{folder} is not a directory"
         assert file_handler, "file_handler is required"
+        self.logger = logger
         self.folder = folder
         self.delay = delay
         self.file_handler = file_handler
@@ -91,9 +95,12 @@ class DelayedFilesHandler(FileSystemEventHandler):
         try:
             out = self.file_handler(path, opt, self.context)
             if out:
-                print(out)
+                self.logger.info() if self.logger else print(out)
         except BaseException as e:
-            print(f"DelayedFilesHandler process_event: {e}")
+            if self.logger:
+                self.logger.error(f"DelayedFilesHandler process_event error: {e}")
+            else:
+                print(f"DelayedFilesHandler process_event error: {e}")
         finally:
             del self.timers[path]  # 处理完成后，从字典中删除定时器
 
@@ -200,6 +207,7 @@ def update_matchers_folder(
     create_folder: bool = True,
     blocking: bool = False,
     default_matcher_config: dict = matcher_config_example,
+    logger: Optional[logging.Logger] = None,
 ) -> dict[str, MultiRegexMatcher]:
     """初始化 matchers 文件夹，创建 DelayedFilesHandler 监控配置文件夹, 根据配置变动实时更新 matchers 文件夹
 
@@ -210,6 +218,7 @@ def update_matchers_folder(
         create_folder (bool, optional): 是否自动创建文件夹
         blocking (bool, optional): 是否阻塞
         default_matcher_config (dict, optional): 默认配置, 当没有匹配器时且有这个变量会自动写入这个 default.json
+        logger (Optional[logging.Logger], optional): 日志记录器, 否则使用 print
 
     Returns:
         dict[str, MultiRegexMatcher]: 加载的 matchers
@@ -238,7 +247,10 @@ def update_matchers_folder(
             pickle.dump(matchers['default'], f)
     
     # 监控配置文件夹
-    print('file_processor_matchers_update: init matchers:', list(matchers))
+    if logger:
+        logger.info(f'matchers_folder: init matchers: {list(matchers)}')
+    else:
+        print('matchers_folder: init matchers:', list(matchers))
     obj = DelayedFilesHandler(
         matchers_config_folder, 
         file_handler=file_processor_matchers_update,
@@ -248,6 +260,7 @@ def update_matchers_folder(
             'matchers': matchers,
         },
         delay=delay,
+        logger=logger,
     )
     if blocking:
         obj.join()

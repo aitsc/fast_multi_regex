@@ -2,39 +2,38 @@ import argparse
 import os
 import uvicorn
 import multiprocessing
+from typing import Literal
 from .utils import update_matchers_folder
 
 
-log_config = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "generic": {
-            "format": "%(asctime)s %(levelname)s [%(process)d] %(message)s",
-            "datefmt": "[%Y-%m-%d %H:%M:%S]",
-            "class": "logging.Formatter",
+def get_log_config(
+    log_level: Literal['debug', 'info', 'warn', 'error', 'critical'] = 'info',
+):
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "generic": {
+                "format": "%(asctime)s %(levelname)s [%(process)d] %(message)s",
+                # "format": "%(asctime)s %(levelname)s [%(process)d] %(name)s: %(message)s",
+                "datefmt": "[%Y-%m-%d %H:%M:%S]",
+                "class": "logging.Formatter",
+            },
         },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "generic",
-            "stream": "ext://sys.stderr",
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "generic",
+                "stream": "ext://sys.stderr",
+            },
         },
-    },
-    "loggers": {
-        "root": {
-            "level": "INFO",
-            "handlers": ["console"],
+        "loggers": {
+            "root": {
+                "level": log_level.upper(),
+                "handlers": ["console"],
+            },
         },
-        "uvicorn": {
-            "level": "INFO",
-            "handlers": ["console"],
-            "propagate": False,
-            "qualname": "uvicorn",
-        },
-    },
-}
+    }
 
 
 def app_server():
@@ -46,7 +45,7 @@ def app_server():
     parser.add_argument("--port", type=int, default=8000, help="端口")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="主机")
     parser.add_argument("--workers", type=int, default=1, help="进程数量")
-    parser.add_argument("--log_level", type=str, default="info", help="日志级别, 例如: debug, info, warning, error, critical")
+    parser.add_argument("--log_level", type=str, default="info", help="日志级别, 例如: debug, info, warn, error, critical")
     parser.add_argument("--log_config", type=str, default="", help="日志配置文件路径, 为空则使用默认配置")
     parser.add_argument("--matchers_folder", type=str, default="data/matchers", help="匹配器保存的文件夹, 没有则自动创建")
     parser.add_argument("--matchers_config_folder", type=str, default="data/matchers_config", help="匹配器配置文件夹，将自动把配置文件转换为匹配器, 没有则自动创建")
@@ -71,8 +70,7 @@ def app_server():
         host=args.host,
         port=args.port,
         workers=args.workers,
-        log_level=args.log_level,
-        log_config=args.log_config or log_config,
+        log_config=args.log_config or get_log_config(args.log_level),
     )
 
 

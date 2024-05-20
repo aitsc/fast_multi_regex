@@ -1,5 +1,5 @@
 import logging
-from fastapi import Request, FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends
 from typing import Literal
 import pickle
 import os
@@ -7,19 +7,12 @@ import time
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from .matcher import (
     MultiRegexMatcher,
-    OneRegex,
-    OneTarget,
-    MultiRegexMatcherInfo,
-    OneFindRegex,
 )
 from .utils import (
     load_matchers,
     DelayedFilesHandler,
 )
 from .api_types import (
-    OneMatch,
-    OneMatchMark,
-    OneQuery,
     BodyMatch,
     RespMatch,
     RespInfo,
@@ -28,6 +21,7 @@ from .api_types import (
     BodyFindExpression,
     RespFindExpression,
 )
+matcher_logger = logging.getLogger('matcher')
 
 
 def file_processor(
@@ -45,7 +39,7 @@ def file_processor(
             matchers[name] = pickle.load(f)
     elif opt == 'deleted':
         matchers.pop(name, None)
-    logging.info(f'update matcher "{name}" {opt}')
+    matcher_logger.info(f'update matcher "{name}" {opt}')
 
 
 matchers_folder = os.getenv('FAST_MULTI_REGEX_MATCHERS_FOLDER', 'data/matchers')
@@ -57,7 +51,7 @@ global_matchers: dict[str, MultiRegexMatcher] = {}
 async def startup():
     global global_matchers
     global_matchers = load_matchers(matchers_folder)
-    logging.info(f"init global_matchers: {list(global_matchers)}")
+    matcher_logger.info(f"init global_matchers: {list(global_matchers)}")
     DelayedFilesHandler(
         matchers_folder,
         file_handler=file_processor,

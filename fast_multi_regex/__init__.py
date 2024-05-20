@@ -4,6 +4,7 @@ from .matcher import (
     OneTarget,
     MultiRegexMatcherInfo,
     OneFindRegex,
+    FlagExt,
 )
 from .utils import (
     load_matchers,
@@ -27,4 +28,4 @@ from .api_types import (
     RespFindExpression,
 )
 from .api import app
-from .server import app_server, log_config
+from .server import app_server, get_log_config
