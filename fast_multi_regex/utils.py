@@ -164,13 +164,10 @@ def file_processor_matchers_update(
         literal = config.get('literal', False)
         if name in matchers:
             success |= matchers[name].compile(config['targets'], literal=literal)
-            if cache_size is not None and cache_size != matchers[name].info.cache_size:
-                matchers[name].reset_cache(cache_size)
-                success = True
+            success |= matchers[name].reset_cache(cache_size, force=False)
         else:
-            matchers[name] = MultiRegexMatcher()
+            matchers[name] = MultiRegexMatcher(cache_size)
             matchers[name].compile(config['targets'], literal=literal)
-            matchers[name].reset_cache(cache_size)
             success = True
         if success:
             os.makedirs(os.path.dirname(pkl_path), exist_ok=True)
@@ -235,12 +232,11 @@ def update_matchers_folder(
         default_matcher_config and 
         default_matcher_config.get('targets')
     ):
-        matchers['default'] = MultiRegexMatcher()
+        matchers['default'] = MultiRegexMatcher(default_matcher_config.get('cache_size'))
         matchers['default'].compile(
             default_matcher_config['targets'],
             literal=default_matcher_config.get('literal', False),
         )
-        matchers['default'].reset_cache(default_matcher_config.get('cache_size'))
         with open(default_json, 'w', encoding='utf-8') as f:
             json.dump(default_matcher_config, f, ensure_ascii=False, indent=4)
         with open(os.path.join(matchers_folder, 'default.pkl'), 'wb') as f:

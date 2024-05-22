@@ -120,6 +120,21 @@ def test_matcher():
     pprint(dict(mr.info))
     pprint(mr.find_expression(r"清华.+大学2", allow_flag=8, top_n=1))
     
+    # HS_MODE_STREAM
+    mr = MultiRegexMatcher(db_mode=hyperscan.HS_MODE_STREAM)
+    mr.compile([{
+        'mark': 'test',
+        'regexs': [
+            {'expression': r"test", 'flag': 0},
+            {'expression': r"test2abc", 'flag': 0},
+            {'expression': r"abc2abc2abc", 'flag': 0},
+        ],
+    }])
+    with mr.stream() as stream:
+        stream.scan(b'test')
+        print(mr.match_all('2abc', stream=stream))
+        print(mr.match_strict('2abc', stream=stream))
+        print(mr.match_first('2abc', stream=stream))
 
 
 def test_utils():
@@ -194,8 +209,8 @@ def test_update():
 
 
 if __name__ == '__main__':
-    # test_matcher()
+    test_matcher()
     # test_utils()
     # test_api()
     # test_update()
-    app_server()
+    # app_server()

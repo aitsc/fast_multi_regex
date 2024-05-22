@@ -99,12 +99,18 @@ async def post_match(body: BodyMatch):
         one_result: list[dict] = []  # list[OneMatchMark]
                         
         if q.method == 'first':
-            match = global_matchers[q.db].match_first(q.query)
+            try:
+                match = global_matchers[q.db].match_first(q.query)
+            except BaseException as e:
+                return RespMatch(message=f"qs{i}.first: {e}", status=2)
             if match:
                 one_result.append({'mark': match[0], 'matches': [match[1]], 'match_count': 1})
         
         elif q.method == 'all':
-            matches = global_matchers[q.db].match_all(q.query, q.is_sort, q.detailed_level, q.match_top_n)
+            try:
+                matches = global_matchers[q.db].match_all(q.query, q.is_sort, q.detailed_level, q.match_top_n)
+            except BaseException as e:
+                return RespMatch(message=f"qs{i}.all: {e}", status=3)
             if isinstance(matches, list):
                 one_result += [{'mark': m} for m in matches]
             else:
@@ -115,12 +121,15 @@ async def post_match(body: BodyMatch):
                         one_result.append({'mark': mark, 'matches': v, 'match_count': len(v)})
                 
         elif q.method == 'strict':
-            matches = global_matchers[q.db].match_strict(q.query, q.is_sort)
+            try:
+                matches = global_matchers[q.db].match_strict(q.query, q.is_sort)
+            except BaseException as e:
+                return RespMatch(message=f"qs{i}.strict: {e}", status=4)
             for mark, v in matches.items():
                 one_result.append({'mark': mark, 'matches': v, 'match_count': len(v)})
                 
         else:
-            return RespMatch(message=f"qs{i}: method '{q.method}' not found", status=1)
+            return RespMatch(message=f"qs{i}: method '{q.method}' not found", status=5)
         
         for om in one_result:
             if q.detailed_level == 1:

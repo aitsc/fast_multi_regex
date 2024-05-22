@@ -1,6 +1,6 @@
 import hyperscan
 import time
-from typing import Union, Optional
+from typing import Union, Optional, Callable
 from functools import lru_cache
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -72,7 +72,7 @@ class OneTarget(BaseModel):
 
 
 class MultiRegexMatcherInfo(BaseModel):
-    cache_size: int = Field(0, description='缓存大小')
+    cache_size: int = Field(0, ge=0, description='缓存大小, 只有 HS_MODE_BLOCK mode 生效')
     last_compile_seconds: float = Field(-1, description='最后一次编译消耗秒数')
     last_compile_date: str = Field("", description='最后一次编译时间')
     # 编译统计
@@ -93,6 +93,7 @@ class MultiRegexMatcherInfo(BaseModel):
     # other
     hyperscan_size: int = Field(0, description='hyperscan 数据库大小, 单位字节')
     hyperscan_info: str = Field("", description='hyperscan 数据库信息')
+    hyperscan_mode: int = Field(hyperscan.HS_MODE_BLOCK, description='hyperscan 数据库模式')
     literal: bool = Field(False, description='是否只有字面量正则，把所有 expression 都当作普通字符匹配， HS_FLAG_CASELESS, HS_FLAG_SINGLEMATCH, HS_FLAG_SOM_LEFTMOST 以外 flag/ext 失效')
 
 
@@ -105,13 +106,24 @@ class OneFindRegex(BaseModel):
 
 
 class MultiRegexMatcher:
-    def __init__(self, cache_size: int = 128) -> None:
+    def __init__(
+        self,
+        cache_size: int = 128,
+        db_mode: int = hyperscan.HS_MODE_BLOCK,
+    ) -> None:
         """多正则匹配器
 
         Args:
-            cache_size (int, optional): 缓存大小, 小于等于0不使用缓存
+            cache_size (int, optional): 缓存大小
+            db_mode (int, optional): hyperscan 数据库模式
+                HS_MODE_BLOCK 1
+                HS_MODE_STREAM 2
+                    HS_MODE_SOM_HORIZON_LARGE 16777216: 提供最大限度的起始匹配位置追踪能力，但会消耗更多的内存和计算资源
+                    HS_MODE_SOM_HORIZON_MEDIUM 33554432: 在内存使用和性能之间提供平衡
+                    HS_MODE_SOM_HORIZON_SMALL 67108864: 提供最低限度的起始匹配位置追踪能力
+                HS_MODE_VECTORED 4
         """
-        self._db = hyperscan.Database(mode=hyperscan.HS_MODE_BLOCK)  # hyperscan 数据库
+        self._db = hyperscan.Database(mode=db_mode)  # hyperscan 数据库
         self._mark_target: dict[str, OneTarget] = {}  # 用 mark 作为 key, 保持编译顺序
         self._mark_target_lazy: dict[str, OneTarget] = {}  # 用于延迟编译
         self._mark_target_no: dict[str, int] = {}  # 用于排序
@@ -121,9 +133,12 @@ class MultiRegexMatcher:
         self._id_mark_no: dict[int, dict[tuple[str, int], 1]] = {}  # 将正则匹配到的 id 映射回 mark 和 regex_no
         self._id_mark: dict[int, dict[str, 1]] = {}  # match_all 只需要对应 mark 的时候用
         self._expression_find_regexs: dict[str, list[OneFindRegex]] = {}  # 用于搜索 expression
-        self._info = MultiRegexMatcherInfo(cache_size=cache_size)
-        
-        self._serializable_var = [  # 应当包括所有 self 需要且可序列化的变量
+        self._info = MultiRegexMatcherInfo(
+            cache_size=cache_size,
+            hyperscan_mode=db_mode,
+        )
+        # 应当包括所有 self 需要且可序列化的变量
+        self._serializable_var = [
             '_mark_target',
             '_mark_target_lazy',
             '_mark_target_no',
@@ -136,7 +151,7 @@ class MultiRegexMatcher:
             '_serializable_var',
         ]
 
-    def __getstate__(self):
+    def __getstate__(self):  # match cache 会清空
         mark_bool_info = {}
         for mark, bool_info in self._mark_bool_info.items():
             _bool_info = mark_bool_info[mark] = {}
@@ -160,23 +175,37 @@ class MultiRegexMatcher:
                 _bool_info['vars'] = {exprvar(v): 0 for v in bool_info['vars']}
                 _bool_info['vars_list'] = [exprvar(v) for v in bool_info['vars_list']]
                 
-        self._db = hyperscan.loadb(state['_db'], hyperscan.HS_MODE_BLOCK)
-        self._db.scratch = hyperscan.Scratch(self._db)
-        self._mark_bool_info = mark_bool_info
         for k, v in state['serializable_var'].items():
             setattr(self, k, v)
+        self._db = hyperscan.loadb(state['_db'], self._info.hyperscan_mode)
+        self._db.scratch = hyperscan.Scratch(self._db)
+        self._mark_bool_info = mark_bool_info
         self.reset_cache()
     
-    def reset_cache(self, cache_size: Optional[int] = None) -> bool:
+    def reset_cache(
+        self,
+        cache_size: Optional[int] = None,
+        force: bool = True,
+    ) -> bool:
         """重置缓存
 
         Args:
             cache_size (int, optional): 修改后的缓存大小. 为 None/小于0 不修改原始缓存大小，等于0不使用缓存
+            force (bool, optional): 是否强制修改，不管是否和原始缓存大小一样, 否则 cache_size 和原来不一样才修改
 
         Returns:
             bool: 是否修改成功
         """
         reset_success = False
+        if (
+            not force and (
+                cache_size is None 
+                or cache_size == self._info.cache_size
+                or cache_size < 0
+            )
+            or not (self._info.hyperscan_size & hyperscan.HS_MODE_BLOCK)
+        ):
+            return reset_success
         if cache_size is not None and cache_size >= 0:
             self._info.cache_size = cache_size
         if hasattr(self.match_first, '__wrapped__'):
@@ -487,7 +516,7 @@ class MultiRegexMatcher:
             return False
         return self.compile(_targets)
     
-    def match_event_callback(self, id: int, start: int, end: int, flags: int, context: dict):
+    def _match_event_callback(self, id: int, start: int, end: int, flags: int, context: dict):
         """匹配事件处理器
 
         Args:
@@ -564,46 +593,62 @@ class MultiRegexMatcher:
             if 0 < context['match_top_n'] <= context['match_count']:
                 raise StopIteration
 
-    def match_first(self, s: str) -> Union[tuple[str, dict], None]:
+    def match_first(
+        self,
+        s: Union[str, list[str]],
+        stream: hyperscan.Stream = None,
+    ) -> Union[tuple[str, dict], None]:
         """匹配第一个，速度较快，不考虑 regex_count 限制和 bool_expr
 
         Args:
-            s (str): 待匹配的字符串
+            s (Union[str, list[str]]): 待匹配的字符串
+                str: 用于 HS_MODE_BLOCK / HS_MODE_STREAM mode
+                list[str]: 用于 HS_MODE_VECTORED mode
+            stream (hyperscan.Stream, optional): hyperscan 流对象，用于 HS_MODE_STREAM mode
+                会导致 hyperscan.ScanTerminated, 然后整个 stream 无法再使用
 
         Returns:
             Union[tuple[str, dict], None]: 匹配到的信息，None 代表没有匹配到，dict 为 OneMatch 格式
         """
         assert self._info.compile_count, "Please compile first."
+        bs = s.encode('utf-8') if isinstance(s, str) else [b.encode('utf-8') for b in s]
         context = {  # context 格式
             'match': None,  # 匹配到的信息, 用于 match_first
             'only_first': True,  # 是否只匹配第一个，用于 match_first
         }
         try:
-            self._db.scan(s.encode('utf-8'), self.match_event_callback, context=context)
-        except:
+            (stream or self._db).scan(bs, match_event_handler=self._match_event_callback, context=context)
+        except StopIteration:
+            ...
+        except hyperscan.ScanTerminated:
             ...
         return context.get('match')
 
     def match_all(
         self,
-        s: str,
+        s: Union[str, list[str]],
         is_sort: bool = True,
         detailed_level: int = 1,
         match_top_n: int = 0,
+        stream: hyperscan.Stream = None,
     ) -> Union[dict[str, Union[list[dict], int]], list[str]]:
         """匹配所有，速度较慢，不考虑 regex_count 限制和 bool_expr
 
         Args:
-            s (str): 待匹配的字符串
+            s (Union[str, list[str]]): 待匹配的字符串
+                str: 用于 HS_MODE_BLOCK / HS_MODE_STREAM mode
+                list[str]: 用于 HS_MODE_VECTORED mode
             is_sort (bool, optional): 是否按照提供的优先级排序 mark, 否则为匹配到的顺序（第一个出现正则的顺序，相同出现为编译的 targets 顺序）
             detailed_level (int, optional): 详细匹配信息等级, 1: 只返回 mark, 2: 返回 mark 和出现次数, 3: 返回详细匹配信息. 越高性能有一点点影响
             match_top_n (int, optional): 匹配元素次数限制, 小于等于 0 代表不限制
                 detailed_level==3 限制的是 (mark,regex_no) 数量, 否则是 mark 数量
+            stream (hyperscan.Stream, optional): hyperscan 流对象，用于 HS_MODE_STREAM mode
 
         Returns:
             Union[dict[str, Union[list[dict], int]], list[str]]: 匹配到的信息，内层 dict 为 OneMatch 格式，list 为 mark
         """
         assert self._info.compile_count, "Please compile first."
+        bs = s.encode('utf-8') if isinstance(s, str) else [b.encode('utf-8') for b in s]
         context = {  # context 格式
             'detailed_level': detailed_level,  # 是否返回详细匹配信息, 用于 match_all
             'match_top_n': match_top_n,  # 匹配元素次数限制, 0 代表不限制
@@ -612,8 +657,8 @@ class MultiRegexMatcher:
             'match_count': 0,  # 匹配元素次数，用于 match_top_n 限制，元素可能是 mark 或者 (mark,regex_no)
         }
         try:
-            self._db.scan(s.encode('utf-8'), self.match_event_callback, context=context)
-        except:
+            (stream or self._db).scan(bs, match_event_handler=self._match_event_callback, context=context)
+        except StopIteration:
             ...
         # 排序
         if is_sort:
@@ -626,8 +671,9 @@ class MultiRegexMatcher:
 
     def match_strict(
         self,
-        s: str,
+        s: Union[str, list[str]],
         is_sort: bool = True,
+        stream: hyperscan.Stream = None,
     ) -> dict[str, list[dict]]:
         """匹配严格的，速度较慢，要求满足 bool_expr 或没有 bool_expr 满足 regex_count 限制
         要遍历 mark_init_bool_true 以及 match_all 的结果，包括布尔运算，所以速度较慢，加速建议：
@@ -639,15 +685,18 @@ class MultiRegexMatcher:
         这个方法用 first 没有意义，一个是每次匹配到都做判定有性能问题，另一个是首次匹配到也不代表后面还能匹配到（例如最后来个not）
 
         Args:
-            s (str): 待匹配的字符串
+            s (Union[str, list[str]]): 待匹配的字符串
+                str: 用于 HS_MODE_BLOCK / HS_MODE_STREAM mode
+                list[str]: 用于 HS_MODE_VECTORED mode
             is_sort (bool, optional): 是否按照提供的优先级排序 mark, 否则为匹配到的顺序（第一个出现正则的顺序，相同出现为编译的 targets 顺序）
                 已排序结果也可以用下面的方法还原顺序：
                 for k, v in sorted(matches.items(), key=lambda x: x[1][0]['match_no'] if x[1] else float('inf'))
+            stream (hyperscan.Stream, optional): hyperscan 流对象，用于 HS_MODE_STREAM mode
 
         Returns:
             dict[str, list[dict]]: 匹配到的信息，内层 dict 为 OneMatch 格式，list 可能为空（当存在无匹配时mark布尔表达式为true的时候）
         """
-        matches = self.match_all(s, is_sort=False, detailed_level=3, match_top_n=0)
+        matches = self.match_all(s, is_sort=False, detailed_level=3, match_top_n=0, stream=stream)
         mark_init_bool_true = [(mark, []) for mark in self._mark_init_bool_true if mark not in matches]
         for mark, mm in list(matches.items()):
             target = self._mark_target[mark]
@@ -731,3 +780,10 @@ class MultiRegexMatcher:
                 if top_n is not None and len(find_regexs) >= top_n:
                     break
         return find_regexs[:top_n]
+
+    def stream(
+        self,
+        match_event_handler: Callable[[int, int, int, int, object], Optional[bool]] = lambda *x: print(x),
+        **kwargs,
+    ) -> hyperscan.Stream:
+        return self._db.stream(match_event_handler, **kwargs)
