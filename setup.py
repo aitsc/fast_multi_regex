@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 from setuptools import setup, find_packages
-import os
 
-if os.path.exists('readme.md'):
-    long_description = open('readme.md', 'r', encoding='utf8').read()
-else:
-    long_description = 'https://github.com/aitsc/fast_multi_regex'
+with open('version.txt', 'r') as f:
+    version = f.read().strip()
+with open('readme.md', 'r') as f:
+    long_description = f.read()
 
 setup(
     name='fast_multi_regex',
-    version='0.12',
+    version=version,
     description="Fast multi-regex, multi-pattern, boolean expression matching",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -34,6 +33,7 @@ setup(
         'watchdog',
         'asyncio',
         'requests',
+        'aiohttp',
     ],
     entry_points={  # 打包到bin
         'console_scripts': [
