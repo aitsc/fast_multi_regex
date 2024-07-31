@@ -7,15 +7,17 @@ from .matcher import (
     FlagExt,
 )
 from .utils import (
-    load_matchers,
+    load_matchers_and_metadata,
     DelayedFilesHandler,
     file_processor_matchers_update,
+    get_metadata_from_targets,
     update_matchers_folder,
     async_request,
     sync_request,
     matcher_config_example,
 )
 from .api_types import (
+    OneTargetExt,
     OneMatch,
     OneMatchMark,
     OneQuery,

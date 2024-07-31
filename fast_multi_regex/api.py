@@ -1,6 +1,6 @@
 import logging
 from fastapi import FastAPI, HTTPException, Depends
-from typing import Literal
+from typing import Literal, Optional
 import pickle
 import os
 import time
@@ -9,8 +9,9 @@ from .matcher import (
     MultiRegexMatcher,
 )
 from .utils import (
-    load_matchers,
+    load_matchers_and_metadata,
     DelayedFilesHandler,
+    model_to_dict,
 )
 from .api_types import (
     BodyMatch,
@@ -24,41 +25,53 @@ from .api_types import (
 matcher_logger = logging.getLogger('matcher')
 
 
-def file_processor(
+def pkl_file_processor(
     path: str, 
     opt: Literal['modified', 'created', 'deleted'],
     context: dict,
 ):
-    if not (path.endswith('.pkl') and path[-1] != '.'):
+    if not path or os.path.basename(path)[0] == '.':
         return
+    file_extension = os.path.splitext(path)[1]
+    if file_extension == '.pkl':
+        name_info: dict[str, MultiRegexMatcher] = context['matchers']
+        name_type = 'matcher'
+    elif file_extension == '.meta_pkl':
+        name_info: dict[str, dict[str, Optional[dict]]] = context['metadata']
+        name_type = 'metadata'
+    else:
+        return
+    
     matchers_folder: str = context['matchers_folder']
-    matchers: dict[str, MultiRegexMatcher] = context['matchers']
     name = os.path.splitext(os.path.relpath(path, matchers_folder))[0]
     if opt == 'modified' or opt == 'created':
         with open(path, 'rb') as f:
-            matchers[name] = pickle.load(f)
+            name_info[name] = pickle.load(f)
     elif opt == 'deleted':
-        matchers.pop(name, None)
-    matcher_logger.info(f'update matcher "{name}" {opt}')
+        name_info.pop(name, None)
+        
+    matcher_logger.info(f'update {name_type} "{name}" {opt}')
 
 
 matchers_folder = os.getenv('FAST_MULTI_REGEX_MATCHERS_FOLDER', 'data/matchers')
 api_tokens = set(os.getenv('FAST_MULTI_REGEX_API_TOKENS', 'test').split(','))
 matchers_api_update_delay = int(os.getenv('FAST_MULTI_REGEX_MATCHERS_API_UPDATE_DELAY', 3))
 global_matchers: dict[str, MultiRegexMatcher] = {}
+global_metadata: dict[str, dict[str, Optional[dict]]] = {}
 
 
 async def startup():
-    global global_matchers
-    global_matchers = load_matchers(matchers_folder)
+    global global_matchers, global_metadata
+    global_matchers, global_metadata = load_matchers_and_metadata(matchers_folder)
     matcher_logger.info(f"init global_matchers: {list(global_matchers)}")
     DelayedFilesHandler(
         matchers_folder,
-        file_handler=file_processor,
+        file_handler=pkl_file_processor,
         delay=matchers_api_update_delay,
         context={
             'matchers_folder': matchers_folder,
             'matchers': global_matchers,
+            'metadata': global_metadata,
         },
     )
 
@@ -73,12 +86,9 @@ security = HTTPBearer()
 
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if credentials:
-        token = credentials.credentials
-        if token not in api_tokens:
-            raise HTTPException(status_code=403, detail="Invalid or expired token")
-    else:
-        raise HTTPException(status_code=403, detail="Invalid authorization code")
+    token = credentials.credentials
+    if token not in api_tokens:
+        raise HTTPException(status_code=403, detail="Invalid or expired token")
 
 
 @app.post(
@@ -131,7 +141,9 @@ async def post_match(body: BodyMatch):
         else:
             return RespMatch(message=f"qs{i}: method '{q.method}' not found", status=5)
         
+        db_metadata = global_metadata.get(q.db) or {}
         for om in one_result:
+            om['meta'] = db_metadata.get(om['mark'])
             if q.detailed_level == 1:
                 om['matches'] = None
                 om['match_count'] = None
@@ -165,8 +177,19 @@ async def get_info(db: str = 'default'):
 )
 async def post_targets(body: BodyTargets):
     if body.db in global_matchers:
-        targets = [global_matchers[body.db].get_target(mark) for mark in body.marks]
-        return RespTargets(result=targets)
+        matcher = global_matchers[body.db]
+        db_metadata = global_metadata.get(body.db) or {}
+        ext_targets = []
+        for mark in body.marks:
+            target = matcher.get_target(mark)
+            if target is None:
+                ext_targets.append(None)
+            else:
+                ext_targets.append({
+                    **model_to_dict(target),
+                    'meta': db_metadata.get(mark),
+                })
+        return RespTargets(result=ext_targets)
     else:
         return RespTargets(message=f"db '{body.db}' not found", status=1)
 

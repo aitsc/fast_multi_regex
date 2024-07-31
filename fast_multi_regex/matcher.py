@@ -15,6 +15,7 @@ import re
 
 
 class FlagExt(BaseModel):
+    '''一个正则表达式的扩展标志'''
     min_offset: Optional[int] = Field(None, ge=0, description='最小偏移量, 匹配的结束位置大于等于这个，None 代表不使用')
     max_offset: Optional[int] = Field(None, ge=0, description='最大偏移量, 匹配的结束位置小于等于这个，None 代表不使用')
     min_length: Optional[int] = Field(None, ge=0, description='最小长度，匹配到的长度要大于等于这个，None 代表不使用')
@@ -44,6 +45,7 @@ class FlagExt(BaseModel):
 
 
 class OneRegex(BaseModel):
+    '''一个正则表达式'''
     expression: str = Field(..., description="正则表达式, 或编号的布尔组合（搭配HS_FLAG_COMBINATION）")
     flag: int = Field(hyperscan.HS_FLAG_SINGLEMATCH | hyperscan.HS_FLAG_UTF8, ge=0, description='''hyperscan 匹配标志，代码运算时可以使用 | 连接多个标志进行组合, 一些例子：
 HS_FLAG_CASELESS 1: 不区分大小写；
@@ -63,6 +65,7 @@ HS_FLAG_QUIET 1024: 不输出匹配结果, 应当配合 HS_FLAG_COMBINATION 使�
 
 
 class OneTarget(BaseModel):
+    '''一组正则表达式'''
     mark: str = Field(..., description='唯一标记。和 OneRegex.expression 的 HS_FLAG_COMBINATION 配合时作为str不能包含“ &|!()”')
     regexs: list[OneRegex] =Field(..., description='多个正则之间是或匹配关系')
     min_regex_count: int = Field(1, ge=0, description='regexs 最少需要满足的正则数量，必须大于等于0，考虑这个速度慢，要用 match_strict 调用才能生效，否则就是1。0 代表全部要满足')
@@ -72,6 +75,7 @@ class OneTarget(BaseModel):
 
 
 class MultiRegexMatcherInfo(BaseModel):
+    '''Matcher 的相关信息'''
     cache_size: int = Field(0, ge=0, description='缓存大小, 只有 HS_MODE_BLOCK mode 生效')
     last_compile_seconds: float = Field(-1, description='最后一次编译消耗秒数')
     last_compile_date: str = Field("", description='最后一次编译时间')
@@ -98,6 +102,7 @@ class MultiRegexMatcherInfo(BaseModel):
 
 
 class OneFindRegex(BaseModel):
+    '''一个正则的查找结果'''
     regex_id: int = Field(..., description='正则在数据库中的 ID')
     regex: OneRegex = Field(..., description='第一个正则, expression/flag 唯一(以及literal=False下的flag_ext)，其他属性供参考')
     mark_count: int = Field(None, description='包含的 mark 数量')

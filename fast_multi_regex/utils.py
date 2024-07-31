@@ -13,7 +13,8 @@ import requests
 import time
 import json
 import logging
-from .matcher import MultiRegexMatcher, FlagExt, OneRegex, OneTarget
+from .matcher import MultiRegexMatcher, FlagExt, OneRegex
+from .api_types import OneTargetExt
 
 
 def model_to_dict(model: Optional[Union[BaseModel, dict]], **kwargs) -> dict:
@@ -30,25 +31,37 @@ def model_to_dict(model: Optional[Union[BaseModel, dict]], **kwargs) -> dict:
         return model.dict(**kwargs)
 
 
-def load_matchers(folder: str) -> dict[str, MultiRegexMatcher]:
-    """递归加载文件夹中的所有 MultiRegexMatcher pkl 文件
+def load_matchers_and_metadata(folder: str) -> tuple[
+    dict[str, MultiRegexMatcher],
+    dict[str, dict[str, Optional[dict]]],
+]:
+    """递归加载文件夹中的所有 MultiRegexMatcher pkl 和 metadata 文件
 
     Args:
         folder (str): 主文件夹路径
 
     Returns:
-        dict[str, MultiRegexMatcher]: 加载结果，str 为相对于 folder 的路径
+        tuple[dict[str, MultiRegexMatcher], dict[str, dict[str, Optional[dict]]]]: matchers 和 metadata
+            matchers: str 为相对于 folder 的路径
+            metadata: 第一个 str 为相对于 folder 的路径，第二个 str 为 mark
     """
     matchers = {}
+    metadata = {}
     for root, _, files in os.walk(folder):
         for file in files:
-            if file.endswith('.pkl') and file[0] != '.':
+            if file[0] == '.':
+                continue
+            if file.endswith('.pkl') or file.endswith('.meta_pkl'):
                 path = os.path.join(root, file)
                 relative_path = os.path.relpath(path, folder)
                 name = os.path.splitext(relative_path)[0]
                 with open(path, 'rb') as f:
-                    matchers[name] = pickle.load(f)
-    return matchers
+                    pkl = pickle.load(f)
+                    if file.endswith('.pkl'):
+                        matchers[name] = pkl
+                    else:
+                        metadata[name] = pkl
+    return matchers, metadata
 
 
 class DelayedFilesHandler(FileSystemEventHandler):
@@ -134,34 +147,42 @@ def file_processor_matchers_update(
     opt: Literal['modified', 'created', 'deleted'],
     context: dict,
 ) -> Optional[str]:
-    """利用配置文件更新 matchers 文件夹中的 matcher，配合 DelayedFilesHandler 实时监控使用
+    """利用配置文件更新 matchers 文件夹中的 matcher 和 metadata，配合 DelayedFilesHandler 实时监控使用
 
     Args:
-        path (str): 发生变动的配置文件路径
+        path (str): 发生变动的配置文件路径，不能以 . 开头
         opt (Literal['modified', 'created', 'deleted']): 变动类型
         context (dict): 额外参数
             matchers_folder (str): matcher 文件夹路径
             matchers_config_folder (str): matcher 配置文件夹路径
             matchers (dict[str, MultiRegexMatcher]): matcher 字典
+            metadata (dict[str, dict[str, Optional[dict]]]): metadata 字典
 
     Returns:
         str: 输出信息
     """
-    if not (path.endswith('.json') and path[-1] != '.'):
+    if not (path.endswith('.json') and os.path.basename(path)[0] != '.'):
         return
     matchers_folder: str = context['matchers_folder']
     matchers_config_folder: str = context['matchers_config_folder']
     matchers: dict[str, MultiRegexMatcher] = context['matchers']
+    metadata: dict[str, dict[str, Optional[dict]]] = context['metadata']
+    
     name = os.path.splitext(os.path.relpath(path, matchers_config_folder))[0]
-    pkl_path = os.path.join(matchers_folder, f'{name}.pkl')
-    success = False
+    matcher_path = os.path.join(matchers_folder, f'{name}.pkl')
+    db_metadata_path = os.path.join(matchers_folder, f'{name}.meta_pkl')
+    actual_opts = []
+    
     if opt == 'modified' or opt == 'created':
         with open(path, 'r', encoding='utf-8') as f:
             config: dict = json.load(f)
         if not config.get('targets'):
             return None
+        
+        # load matcher
         cache_size = config.get('cache_size')
         literal = config.get('literal', False)
+        success = False
         if name in matchers:
             success |= matchers[name].compile(config['targets'], literal=literal)
             success |= matchers[name].reset_cache(cache_size, force=False)
@@ -170,23 +191,39 @@ def file_processor_matchers_update(
             matchers[name].compile(config['targets'], literal=literal)
             success = True
         if success:
-            os.makedirs(os.path.dirname(pkl_path), exist_ok=True)
-            with open(pkl_path, 'wb') as f:
+            os.makedirs(os.path.dirname(matcher_path), exist_ok=True)
+            with open(matcher_path, 'wb') as f:
                 pickle.dump(matchers[name], f)
+                actual_opts.append('dump matcher')
+                
+        # load db_metadata
+        db_metadata = get_metadata_from_targets(config['targets'])
+        if metadata.get(name) != db_metadata:
+            metadata[name] = db_metadata
+            os.makedirs(os.path.dirname(db_metadata_path), exist_ok=True)
+            with open(db_metadata_path, 'wb') as f:
+                pickle.dump(db_metadata, f)
+                actual_opts.append('dump db_metadata')
+        
     elif opt == 'deleted':
         matchers.pop(name, None)
-        if os.path.exists(pkl_path):
-            os.remove(pkl_path)
-            success = True
-    if success:
-        return f'file_processor_matchers_update: "{name}" {opt}'
+        if os.path.exists(matcher_path):
+            os.remove(matcher_path)
+            actual_opts.append('del matcher')
+        metadata.pop(name, None)
+        if os.path.exists(db_metadata_path):
+            os.remove(db_metadata_path)
+            actual_opts.append('del db_metadata')
+            
+    if actual_opts:
+        return f'file_processor_matchers_update: "{name}" {opt}: {actual_opts}'
 
 
 matcher_config_example = {
     "cache_size": 128,  # 缓存大小
     "literal": False,  # 是否使用字面量匹配（正则当作普通字符匹配）
     "targets": [
-        model_to_dict(OneTarget(
+        model_to_dict(OneTargetExt(
             mark="example",  # 正则组名称，不能重复
             regexs=[OneRegex(
                 expression='例子',  # 正则
@@ -195,6 +232,27 @@ matcher_config_example = {
         )),
     ]
 }
+
+
+def get_metadata_from_targets(ext_targets: list[dict]) -> dict[str, Optional[dict]]:
+    """从 ext_targets 中获取 metadata, 出现相同的mark后出现的会覆盖前面的
+
+    Args:
+        ext_targets (list[dict]): 正则组列表, 来自配置文件，list[OneTargetExt]
+
+    Returns:
+        dict[str, Optional[dict]]: db_metadata, str 是 mark
+    """
+    db_metadata = {}
+    for ext_target in ext_targets:
+        if 'mark' not in ext_target or 'meta' not in ext_target:
+            continue
+        mark = ext_target['mark']
+        meta = ext_target['meta']
+        assert isinstance(mark, str), f"mark must be str: {ext_target}"
+        assert isinstance(meta, dict) or meta is None, f"meta must be dict or None: {ext_target}"
+        db_metadata[mark] = meta
+    return db_metadata
 
 
 def update_matchers_folder(
@@ -209,7 +267,7 @@ def update_matchers_folder(
     """初始化 matchers 文件夹，创建 DelayedFilesHandler 监控配置文件夹, 根据配置变动实时更新 matchers 文件夹
 
     Args:
-        matchers_folder (str): 匹配器保存的文件夹
+        matchers_folder (str): 匹配器保存的文件夹，包括 meta 信息
         matchers_config_folder (str): 匹配器配置文件夹，将自动把配置文件转换为匹配器
         delay (int, optional): 配置文件这么多秒后不再修改才会更新到匹配器文件夹
         create_folder (bool, optional): 是否自动创建文件夹
@@ -223,7 +281,7 @@ def update_matchers_folder(
     if create_folder:
         os.makedirs(matchers_folder, exist_ok=True)
         os.makedirs(matchers_config_folder, exist_ok=True)
-    matchers = load_matchers(matchers_folder)
+    matchers, metadata = load_matchers_and_metadata(matchers_folder)
     
     # 写入默认配置
     default_json = os.path.join(matchers_config_folder, 'default.json')
@@ -237,16 +295,21 @@ def update_matchers_folder(
             default_matcher_config['targets'],
             literal=default_matcher_config.get('literal', False),
         )
+        metadata['default'] = get_metadata_from_targets(default_matcher_config['targets'])
+        
         with open(default_json, 'w', encoding='utf-8') as f:
             json.dump(default_matcher_config, f, ensure_ascii=False, indent=4)
         with open(os.path.join(matchers_folder, 'default.pkl'), 'wb') as f:
             pickle.dump(matchers['default'], f)
-    
-    # 监控配置文件夹
+        with open(os.path.join(matchers_folder, 'default.meta_pkl'), 'wb') as f:
+            pickle.dump(metadata['default'], f)
+            
     if logger:
         logger.info(f'matchers_folder: init matchers: {list(matchers)}')
     else:
         print('matchers_folder: init matchers:', list(matchers))
+
+    # 监控配置文件夹
     obj = DelayedFilesHandler(
         matchers_config_folder, 
         file_handler=file_processor_matchers_update,
@@ -254,6 +317,7 @@ def update_matchers_folder(
             'matchers_folder': matchers_folder,
             'matchers_config_folder': matchers_config_folder,
             'matchers': matchers,
+            'metadata': metadata,
         },
         delay=delay,
         logger=logger,

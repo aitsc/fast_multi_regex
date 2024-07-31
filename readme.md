@@ -10,12 +10,12 @@ fast_multi_regex_server --help
 fast_multi_regex_server
 ```
 
-构建正则库，即增删改 matchers_config_folder 中的 json 文件（允许子文件夹嵌套），例子参数解释：
+构建正则库，即增删改 matchers_config_folder 中的 json 文件（允许子文件夹嵌套，不能以 . 开头），例子参数解释：
 ```json
 { // 一个正则库
-    "cache_size": 128, // 缓存大小
+    "cache_size": 128, // match 接口查询的缓存大小
     "literal": false, // 是否使用字面量匹配（用于正则当作普通字符更快匹配，但是大部分flag失效）
-    "targets": [
+    "targets": [ // 如果要删除一个库不能直接将 targets 置空，而是要删除文件，空 targets 的配置不会被解析
         {
             "mark": "example", // 正则组名称，不能重复
             "regexs": [
@@ -36,7 +36,8 @@ fast_multi_regex_server
             "min_regex_count": 1, // regexs 最少需要满足的正则数量，必须大于等于0，0 代表全部要满足，适用于 match_strict
             "max_regex_count": 0, // regexs 最多允许满足的正则数量, 必须大于等于0。0 代表不限制，适用于 match_strict
             "bool_expr": "", // 逻辑表达式，为空则不使用，使用则 regex_count 限制失效，适用于 match_strict。支持 => <=> :? ^ & | ~ () 运算符, 变量名为字母 r 加上正则在 regexs 中的索引号，例如 r0, r1, r2，所有正则索引都要覆盖到
-            "priority": 1 // 优先级, 越小越优先返回，需要 is_sort=true
+            "priority": 1, // 优先级, 越小越优先返回，需要 is_sort=true
+            "meta": {} // 元数据，可以不提供 或 null 或 object，用于匹配返回时携带
         }
     ]
 }

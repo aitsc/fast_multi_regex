@@ -138,7 +138,7 @@ def test_matcher():
 
 
 def test_utils():
-    # print(load_matchers('.'))
+    # print(load_matchers_and_metadata('.'))
     # DelayedFilesHandler('data/matchers')
     # input('press any key to exit\n')
     ret = sync_request(
@@ -193,7 +193,7 @@ def test_api():
 def test_update():
     matchers_folder = 'data/matchers'
     matchers_config_folder = 'data/matchers_config'
-    matchers = load_matchers(matchers_folder)
+    matchers, metadata = load_matchers_and_metadata(matchers_folder)
     print('init matchers:', list(matchers))
     DelayedFilesHandler(
         matchers_config_folder, 
@@ -209,8 +209,8 @@ def test_update():
 
 
 if __name__ == '__main__':
-    test_matcher()
+    # test_matcher()
     # test_utils()
     # test_api()
     # test_update()
-    # app_server()
+    app_server()
