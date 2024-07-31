@@ -1,2 +1,2 @@
-include version.txt
+include fast_multi_regex/version.txt
 include readme.md

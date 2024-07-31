@@ -12,7 +12,7 @@ import asyncio
 import requests
 import time
 import json
-import logging
+from logging.handlers import RotatingFileHandler
 from .matcher import MultiRegexMatcher, FlagExt, OneRegex
 from .api_types import OneTargetExt
 
@@ -29,6 +29,43 @@ def model_to_dict(model: Optional[Union[BaseModel, dict]], **kwargs) -> dict:
     except AttributeError:
         # Fallback to Pydantic 1.x method
         return model.dict(**kwargs)
+
+
+def setup_logger(name, log_file, level=logging.INFO, max_bytes=10*1024*1024, backup_count=1):
+    """
+    Function to setup a logger with a specific name, log file, and log level.
+    
+    Args:
+    - name (str): The name of the logger.
+    - log_file (str): The file to which logs should be written.
+    - level: The logging level. Default is logging.INFO.
+    - max_bytes (int): The maximum file size in bytes before rotating. Default is 10MB.
+    - backup_count (int): The number of backup files to keep. Default is 1.
+    
+    Returns:
+    - logger: Configured logger object.
+    """
+    # Ensure the parent directory of log_file exists
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    
+    # Create a custom logger
+    logger = logging.getLogger(name)
+    
+    # Set the log level
+    logger.setLevel(level)
+    
+    # Create handlers
+    file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
+    file_handler.setLevel(level)
+    
+    # Create a logging format
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    
+    # Add the handlers to the logger
+    logger.addHandler(file_handler)
+    
+    return logger
 
 
 def load_matchers_and_metadata(folder: str) -> tuple[
@@ -108,7 +145,7 @@ class DelayedFilesHandler(FileSystemEventHandler):
         try:
             out = self.file_handler(path, opt, self.context)
             if out:
-                self.logger.info() if self.logger else print(out)
+                self.logger.info(str(out)) if self.logger else print(out)
         except BaseException as e:
             if self.logger:
                 self.logger.error(f"DelayedFilesHandler process_event error: {e}")
@@ -288,7 +325,8 @@ def update_matchers_folder(
     if (
         not matchers and 
         default_matcher_config and 
-        default_matcher_config.get('targets')
+        default_matcher_config.get('targets') and
+        not os.path.exists(default_json)
     ):
         matchers['default'] = MultiRegexMatcher(default_matcher_config.get('cache_size'))
         matchers['default'].compile(
@@ -304,6 +342,22 @@ def update_matchers_folder(
         with open(os.path.join(matchers_folder, 'default.meta_pkl'), 'wb') as f:
             pickle.dump(metadata['default'], f)
             
+    # 遍历已有配置，更新 matchers，不会删除配置没有的多余 matchers
+    context = {
+        'matchers_folder': matchers_folder,
+        'matchers_config_folder': matchers_config_folder,
+        'matchers': matchers,
+        'metadata': metadata,
+    }
+    for root, _, files in os.walk(matchers_config_folder):
+        for file in files:
+            path = os.path.join(root, file)
+            s = file_processor_matchers_update(path, 'created', context)
+            if s:
+                if logger:
+                    logger.info(s)
+                else:
+                    print(s)
     if logger:
         logger.info(f'matchers_folder: init matchers: {list(matchers)}')
     else:
@@ -313,12 +367,7 @@ def update_matchers_folder(
     obj = DelayedFilesHandler(
         matchers_config_folder, 
         file_handler=file_processor_matchers_update,
-        context={
-            'matchers_folder': matchers_folder,
-            'matchers_config_folder': matchers_config_folder,
-            'matchers': matchers,
-            'metadata': metadata,
-        },
+        context=context,
         delay=delay,
         logger=logger,
     )

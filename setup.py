@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from setuptools import setup, find_packages
 
-with open('version.txt', 'r') as f:
+with open('fast_multi_regex/version.txt', 'r') as f:
     version = f.read().strip()
 with open('readme.md', 'r') as f:
     long_description = f.read()
@@ -17,6 +17,7 @@ setup(
     url='https://github.com/aitsc/fast_multi_regex',
     keywords='tools',
     packages=find_packages(),
+    include_package_data=True,
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
@@ -24,7 +25,7 @@ setup(
         'Topic :: Software Development :: Libraries',
     ],
     install_requires=[
-        'hyperscan',
+        'hyperscan>=0.7.7',
         'pydantic',
         'pyeda',
         'tsc-base',
