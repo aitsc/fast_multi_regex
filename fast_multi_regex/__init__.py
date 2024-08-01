@@ -17,6 +17,9 @@ from .utils import (
     matcher_config_example,
     setup_logger,
     set_auto_mark_for_targets,
+    load_config,
+    get_model_info,
+    get_process_index,
 )
 from .api_types import (
     OneTargetExt,

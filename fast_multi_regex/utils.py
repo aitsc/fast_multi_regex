@@ -10,8 +10,12 @@ import aiohttp
 import logging
 import asyncio
 import requests
+import psutil
 import time
 import json
+import yaml
+import toml
+from jsoncomment import JsonComment
 from logging.handlers import RotatingFileHandler
 from .matcher import MultiRegexMatcher, FlagExt, OneRegex
 from .api_types import OneTargetExt
@@ -69,6 +73,80 @@ def setup_logger(name, log_file, level=logging.INFO, max_bytes=10*1024*1024, bac
     logger.addHandler(file_handler)
     
     return logger
+
+
+def load_config(path: str) -> Optional[dict]:
+    """加载配置文件，支持 json, jsonc, yaml, yml, toml
+
+    Args:
+        path (str): 配置文件路径
+
+    Returns:
+        dict: 配置文件内容
+    """
+    if not os.path.exists(path):
+        return None
+    suffix = os.path.splitext(path)[1]
+    if suffix not in {'.json', '.jsonc', '.yaml', '.yml', '.toml'}:
+        return None
+    config = {}
+    with open(path, 'r', encoding='utf-8') as f:
+        if suffix == '.json':
+            config = json.load(f)
+        elif suffix == '.jsonc':
+            config = JsonComment().load(f)
+        elif suffix in {'.yaml', '.yml'}:
+            config = yaml.safe_load(f)
+        elif suffix == '.toml':
+            config = toml.load(f)
+    assert isinstance(config, dict), f"config must be dict: {path}"
+    return config
+
+
+def get_model_info(model: Union[type[BaseModel], BaseModel]) -> dict[str, dict[str, Any]]:
+    """获取 Pydantic 模型的字段信息
+    
+    Args:
+        model (Union[type[BaseModel], BaseModel]): Pydantic 模型
+        
+    Returns:
+        dict[str, dict[str, Any]]: 字段信息
+    """
+    info = {}
+    try:
+        fields = model.__fields__
+    except AttributeError:
+        fields = model.model_fields  # Pydantic 2.x 的字段属性
+    
+    for field_name, field_info in fields.items():
+        if isinstance(model, BaseModel):
+            value = getattr(model, field_name)
+        else:
+            value = ...
+        description = field_info.field_info.description if hasattr(field_info, 'field_info') else field_info.description
+        field_type = field_info.outer_type_ if hasattr(field_info, 'outer_type_') else field_info.annotation
+        default_value = field_info.default if field_info.default is not None else None  # 默认值
+
+        info[field_name] = {
+            'value': value,  # 字段值, 如果是未实例化的 BaseModel 则为 ...
+            'default_value': default_value,  # 默认值
+            'description': description,  # 字段描述
+            'type': field_type,  # 字段类型
+        }
+    return info
+
+
+def get_process_index() -> int:
+    """获取当前进程在父进程的子进程列表中的索引"""
+    pid = os.getpid()
+    parent_pid = os.getppid()
+    parent = psutil.Process(parent_pid)
+    children = parent.children()
+    children.sort(key=lambda p: p.pid)
+    for index, child in enumerate(children):
+        if child.pid == pid:
+            return index
+    return -1
 
 
 def load_matchers_and_metadata(folder: str) -> tuple[
@@ -148,10 +226,8 @@ class DelayedFilesHandler(FileSystemEventHandler):
         try:
             self.file_handler(path, opt, self.context, self.logger)
         except BaseException as e:
-            if self.logger:
-                self.logger.error(f"DelayedFilesHandler process_event error: {e}")
-            else:
-                print(f"DelayedFilesHandler process_event error: {e}")
+            text = f"DelayedFilesHandler process_event error: {e}"
+            self.logger.error(text) if self.logger else print(text)
         finally:
             del self.timers[path]  # 处理完成后，从字典中删除定时器
 
@@ -215,7 +291,10 @@ def file_processor_matchers_update(
             metadata (dict[str, dict[str, Optional[dict]]]): metadata 字典
         logger (Optional[logging.Logger], optional): 日志记录器
     """
-    if not (path.endswith('.json') and os.path.basename(path)[0] != '.'):
+    if os.path.basename(path)[0] == '.':
+        return
+    suffix = os.path.splitext(path)[1]
+    if suffix not in {'.json', '.jsonc', '.yaml', '.yml', '.toml'}:
         return
     matchers_folder: str = context['matchers_folder']
     matchers_config_folder: str = context['matchers_config_folder']
@@ -228,8 +307,7 @@ def file_processor_matchers_update(
     actual_opts = []
     
     if opt == 'modified' or opt == 'created':
-        with open(path, 'r', encoding='utf-8') as f:
-            config: dict = json.load(f)
+        config = load_config(path)
         if not config.get('targets'):
             return None
         set_auto_mark_for_targets(config['targets'])

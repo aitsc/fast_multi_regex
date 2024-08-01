@@ -9,3 +9,7 @@ watchdog
 asyncio
 requests
 aiohttp
+pyyaml
+toml
+jsoncomment
+prometheus-client

@@ -10,12 +10,12 @@ fast_multi_regex_server --help
 fast_multi_regex_server
 ```
 
-构建正则库，即增删改 matchers_config_folder 中的 json 文件（允许子文件夹嵌套，不能以 . 开头），例子参数解释：
+构建正则库，即增删改 matchers_config_folder 中的 json 文件（允许子文件夹嵌套，不能以 . 开头），也支持其他格式的配置文件，包括 .jsonc .toml .yaml，格式和 json 一样，可以使用注释。json 文件例子参数解释：
 ```json
 { // 一个正则库, 超过 10 万不重复的 regex 建议拆分成多个库
     "cache_size": 128, // match 接口查询的缓存大小
     "literal": false, // 是否使用字面量匹配（用于正则当作普通字符更快匹配，但是大部分flag失效）
-    "targets": [ // 如果要删除一个库不能直接将 targets 置空，而是要删除文件，空 targets 的配置不会被解析
+    "targets": [ // 如果要删除一个线上库不能直接将 targets 置空，而是要删除配置文件，空 targets 的配置不会被解析
         {
             "mark": "example", // 正则组名称，不能重复。不提供或为空则默认为 auto_i，i 为 targets 中所在的索引，从1开始
             "regexs": [
@@ -80,4 +80,35 @@ targets = [
 ]
 mr.compile(targets)
 print(mr.match_first("test"))
+```
+
+可以配置 prometheus.yml 查看统计指标：
+```yaml
+scrape_configs:
+  - job_name: fast_multi_regex_server
+    bearer_token: test
+    static_configs:
+      - targets: ['127.0.0.1:8000']
+```
+
+## 不同配置文件的读取速度测试
+仅供参考，速度 JSON > JSONC > TOML > YAML，不需要注释最好用 JSON，target 数量不太多的情况下 YAML 也可以接受。
+```
+# 1000 对象
+读取 JSON 文件的平均时间: 0.001775 秒
+读取 YAML 文件的平均时间: 0.373537 秒
+读取 TOML 文件的平均时间: 0.080640 秒
+读取 JSONC 文件的平均时间: 0.010024 秒
+读取 YAML 文件相对于 JSON 慢了 210.49 倍
+读取 TOML 文件相对于 JSON 慢了 45.44 倍
+读取 JSONC 文件相对于 JSON 慢了 5.65 倍
+
+# 100 对象
+读取 JSON 文件的平均时间: 0.000653 秒
+读取 YAML 文件的平均时间: 0.037624 秒
+读取 TOML 文件的平均时间: 0.008857 秒
+读取 JSONC 文件的平均时间: 0.001412 秒
+读取 YAML 文件相对于 JSON 慢了 57.58 倍
+读取 TOML 文件相对于 JSON 慢了 13.56 倍
+读取 JSONC 文件相对于 JSON 慢了 2.16 倍
 ```

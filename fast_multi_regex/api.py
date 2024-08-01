@@ -1,10 +1,11 @@
 import logging
-from fastapi import FastAPI, HTTPException, Depends
-from typing import Literal, Optional
+from fastapi import FastAPI, HTTPException, Depends, Response
+from typing import Literal, Optional, Union
 import pickle
 import os
 import time
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from prometheus_client import Gauge, generate_latest, Counter
 from .matcher import (
     MultiRegexMatcher,
 )
@@ -12,6 +13,8 @@ from .utils import (
     load_matchers_and_metadata,
     DelayedFilesHandler,
     model_to_dict,
+    get_model_info,
+    get_process_index,
 )
 from .api_types import (
     BodyMatch,
@@ -22,7 +25,28 @@ from .api_types import (
     BodyFindExpression,
     RespFindExpression,
 )
+
+
+api_tokens = set(os.getenv('FAST_MULTI_REGEX_API_TOKENS', 'test').split(','))
+matchers_folder = os.getenv('FAST_MULTI_REGEX_MATCHERS_FOLDER', 'data/matchers')
+matchers_api_update_delay = int(os.getenv('FAST_MULTI_REGEX_MATCHERS_API_UPDATE_DELAY', 3))
 matcher_logger = logging.getLogger('matcher')
+process_index = get_process_index()
+global_matchers: dict[str, MultiRegexMatcher] = {}
+global_metadata: dict[str, dict[str, Optional[dict]]] = {}
+global_metric_wrapper: dict[str, Union[Counter, Gauge]] = {  # 初始赋值的 key 不用 fmrs_ 开头，小心函数内新建的重复
+    # api 接口
+    'post_match': Counter('fmrs_api_post_match', 'post_match interface request times', ['process_index']).labels(process_index),
+    'get_info': Counter('fmrs_api_get_info', 'get_info 接口请求次数', ['process_index']).labels(process_index),
+    'post_targets': Counter('fmrs_api_post_targets', 'post_targets 接口请求次数', ['process_index']).labels(process_index),
+    'post_find_expression': Counter('fmrs_api_post_find_expression', 'post_find_expression 接口请求次数', ['process_index']).labels(process_index),
+    'get_metrics': Counter('fmrs_api_get_metrics', 'get_metrics 接口请求次数', ['process_index']).labels(process_index),
+    # post_match 接口内
+    'match_query': Counter('fmrs_match_query', 'match 查询的有效 query 总数', ['process_index']).labels(process_index),
+    'match_hit_query': Counter('fmrs_match_hit_query', 'match 查询有 mark 返回的 query 总数', ['process_index']).labels(process_index),
+    'match_hit_mark': Counter('fmrs_match_hit_mark', 'match 查询有 mark 返回的 mark 总数', ['process_index']).labels(process_index),
+    'match_query_char': Counter('fmrs_match_query_char', 'match 查询的有效 query 总字符数', ['process_index']).labels(process_index),
+}
 
 
 def pkl_file_processor(
@@ -53,13 +77,6 @@ def pkl_file_processor(
         name_info.pop(name, None)
         
     matcher_logger.info(f'update {name_type} "{name}" {opt}')
-
-
-matchers_folder = os.getenv('FAST_MULTI_REGEX_MATCHERS_FOLDER', 'data/matchers')
-api_tokens = set(os.getenv('FAST_MULTI_REGEX_API_TOKENS', 'test').split(','))
-matchers_api_update_delay = int(os.getenv('FAST_MULTI_REGEX_MATCHERS_API_UPDATE_DELAY', 3))
-global_matchers: dict[str, MultiRegexMatcher] = {}
-global_metadata: dict[str, dict[str, Optional[dict]]] = {}
 
 
 async def startup():
@@ -102,6 +119,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
 )
 async def post_match(body: BodyMatch):
     start = time.time()
+    global_metric_wrapper['post_match'].inc()
     result = []
     qs = body.qs if isinstance(body.qs, list) else [body.qs]
     
@@ -154,6 +172,13 @@ async def post_match(body: BodyMatch):
             elif q.detailed_level == 2:
                 om['matches'] = None
         result.append(one_result)
+        
+        if one_result:
+            global_metric_wrapper['match_hit_query'].inc()
+            global_metric_wrapper['match_hit_mark'].inc(len(one_result))
+        global_metric_wrapper['match_query'].inc()
+        global_metric_wrapper['match_query_char'].inc(len(q.query))
+        
     return RespMatch(result=result, milliseconds=(time.time() - start) * 1000)
 
 
@@ -165,6 +190,7 @@ async def post_match(body: BodyMatch):
     description="用于分析正则库是否正常，包括最近什么时候编译更新过",
 )
 async def get_info(db: str = 'default'):
+    global_metric_wrapper['get_info'].inc()
     if db in global_matchers:
         info = global_matchers[db].info
         return RespInfo(result=info)
@@ -180,6 +206,7 @@ async def get_info(db: str = 'default'):
     description="可用于查询 match 返回的 mark 对应的具体正则组信息",
 )
 async def post_targets(body: BodyTargets):
+    global_metric_wrapper['post_targets'].inc()
     if body.db in global_matchers:
         matcher = global_matchers[body.db]
         db_metadata = global_metadata.get(body.db) or {}
@@ -206,6 +233,7 @@ async def post_targets(body: BodyTargets):
     description="可用于查找一些正则是否存在，帮助增删改相关正则",
 )
 async def post_find_expression(body: BodyFindExpression):
+    global_metric_wrapper['post_find_expression'].inc()
     if body.db in global_matchers:
         result = global_matchers[body.db].find_expression(
             s=body.s, 
@@ -217,3 +245,65 @@ async def post_find_expression(body: BodyFindExpression):
         return RespFindExpression(result=result)
     else:
         return RespFindExpression(message=f"db '{body.db}' not found", status=1)
+
+
+@app.get(
+    '/metrics',
+    dependencies=[Depends(verify_token)],
+    summary='Prometheus metrics',
+    description='Prometheus metrics',
+)
+async def get_metrics():
+    global_metric_wrapper['get_metrics'].inc()
+    if 'fmrs_matchers_num' not in global_metric_wrapper:
+        global_metric_wrapper['fmrs_matchers_num'] = Gauge('fmrs_matchers_num', '匹配器/正则库的数量', ['process_index']).labels(process_index)
+    global_metric_wrapper['fmrs_matchers_num'].set(len(global_matchers))
+    
+    # from MultiRegexMatcherInfo
+    total_matchers_metrics: dict[str, Union[int, float]] = {}
+    max_matchers_metrics: dict[str, Union[int, float]] = {}
+    min_matchers_metrics: dict[str, Union[int, float]] = {}
+    matchers_metrics_description: dict[str, str] = {}
+    
+    for _, matcher in global_matchers.items():
+        for metric, info in get_model_info(matcher.info).items():
+            value = info['value']
+            if not isinstance(value, (int, float, bool)):
+                continue
+            matchers_metrics_description[metric] = info['description']
+            total_matchers_metrics.setdefault(metric, 0)
+            if isinstance(value, bool):
+                total_matchers_metrics[metric] += 1 if value else 0
+            else:
+                total_matchers_metrics[metric] += value
+                if metric in max_matchers_metrics:
+                    max_matchers_metrics[metric] = max(max_matchers_metrics[metric], value)
+                else:
+                    max_matchers_metrics[metric] = value
+                if metric in min_matchers_metrics:
+                    min_matchers_metrics[metric] = min(min_matchers_metrics[metric], value)
+                else:
+                    min_matchers_metrics[metric] = value
+                    
+    for metric, value in total_matchers_metrics.items():
+        name = f'fmrs_matchers_{metric}_total'
+        description = matchers_metrics_description[metric]
+        if name not in global_metric_wrapper:
+            global_metric_wrapper[name] = Gauge(name, f"总数: {description}", ['process_index']).labels(process_index)
+        global_metric_wrapper[name].set(value)
+        
+    for metric, value in max_matchers_metrics.items():
+        name = f'fmrs_matchers_{metric}_max'
+        description = matchers_metrics_description[metric]
+        if name not in global_metric_wrapper:
+            global_metric_wrapper[name] = Gauge(name, f"最大值: {description}", ['process_index']).labels(process_index)
+        global_metric_wrapper[name].set(value)
+        
+    for metric, value in min_matchers_metrics.items():
+        name = f'fmrs_matchers_{metric}_min'
+        description = matchers_metrics_description[metric]
+        if name not in global_metric_wrapper:
+            global_metric_wrapper[name] = Gauge(name, f"最小值: {description}", ['process_index']).labels(process_index)
+        global_metric_wrapper[name].set(value)
+
+    return Response(generate_latest(), media_type='text/plain')

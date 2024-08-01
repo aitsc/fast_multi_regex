@@ -35,6 +35,10 @@ setup(
         'asyncio',
         'requests',
         'aiohttp',
+        'pyyaml',
+        'toml',
+        'jsoncomment',
+        'prometheus-client',
     ],
     entry_points={  # 打包到bin
         'console_scripts': [

@@ -77,7 +77,7 @@ class OneTarget(BaseModel):
 class MultiRegexMatcherInfo(BaseModel):
     '''Matcher 的相关信息'''
     cache_size: int = Field(0, ge=0, description='缓存大小, 只有 HS_MODE_BLOCK mode 生效')
-    last_compile_seconds: float = Field(-1, description='最后一次编译消耗秒数')
+    last_compile_seconds: float = Field(0, description='最后一次编译消耗秒数')
     last_compile_date: str = Field("", description='最后一次编译时间')
     # 编译统计
     compile_count: int = Field(0, description='编译次数')
