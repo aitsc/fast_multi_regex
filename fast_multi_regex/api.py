@@ -29,6 +29,8 @@ def pkl_file_processor(
     path: str, 
     opt: Literal['modified', 'created', 'deleted'],
     context: dict,
+    *args,
+    **kwargs,
 ):
     if not path or os.path.basename(path)[0] == '.':
         return
@@ -144,6 +146,8 @@ async def post_match(body: BodyMatch):
         db_metadata = global_metadata.get(q.db) or {}
         for om in one_result:
             om['meta'] = db_metadata.get(om['mark'])
+            if om['meta'] and q.allowed_return_meta_keys:
+                om['meta'] = {k: om['meta'][k] for k in q.allowed_return_meta_keys if k in om['meta']}
             if q.detailed_level == 1:
                 om['matches'] = None
                 om['match_count'] = None

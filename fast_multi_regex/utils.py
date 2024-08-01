@@ -4,7 +4,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 import atexit
 import threading
-from typing import Literal, Callable, Any, Optional, Union
+from typing import Literal, Callable, Any, Optional, Union, TypeVar
 from pydantic import BaseModel
 import aiohttp
 import logging
@@ -15,6 +15,9 @@ import json
 from logging.handlers import RotatingFileHandler
 from .matcher import MultiRegexMatcher, FlagExt, OneRegex
 from .api_types import OneTargetExt
+
+
+T = TypeVar('T')
 
 
 def model_to_dict(model: Optional[Union[BaseModel, dict]], **kwargs) -> dict:
@@ -106,10 +109,10 @@ class DelayedFilesHandler(FileSystemEventHandler):
         self, 
         folder: str, 
         file_handler: Callable[
-            [str, Literal['modified', 'created', 'deleted'], Any],
+            [str, Literal['modified', 'created', 'deleted'], T, logging.Logger],
             Any,
         ] = lambda p, o: f'event: {p}, {o}',
-        context: Any = None,
+        context: T = None,
         delay: float = 3, 
         logger: Optional[logging.Logger] = None,
     ):
@@ -143,9 +146,7 @@ class DelayedFilesHandler(FileSystemEventHandler):
 
     def process_event(self, path, opt):
         try:
-            out = self.file_handler(path, opt, self.context)
-            if out:
-                self.logger.info(str(out)) if self.logger else print(out)
+            self.file_handler(path, opt, self.context, self.logger)
         except BaseException as e:
             if self.logger:
                 self.logger.error(f"DelayedFilesHandler process_event error: {e}")
@@ -179,11 +180,29 @@ class DelayedFilesHandler(FileSystemEventHandler):
         self.observer.join()
 
 
+def set_auto_mark_for_targets(targets: list[dict]) -> list[dict]:
+    """为 targets 中的每个正则组添加一个自动 mark, 原地修改
+
+    Args:
+        targets (list[dict]): 正则组列表, 来自配置文件，list[OneTargetExt]
+
+    Returns:
+        list[dict]: 添加了 mark 的正则组列表
+    """
+    if not targets:
+        return targets
+    for i, target in enumerate(targets):
+        if not target.get('mark'):
+            target['mark'] = f'auto_{i + 1}'
+    return targets
+
+
 def file_processor_matchers_update(
     path: str, 
     opt: Literal['modified', 'created', 'deleted'],
     context: dict,
-) -> Optional[str]:
+    logger: Optional[logging.Logger] = None,
+):
     """利用配置文件更新 matchers 文件夹中的 matcher 和 metadata，配合 DelayedFilesHandler 实时监控使用
 
     Args:
@@ -194,9 +213,7 @@ def file_processor_matchers_update(
             matchers_config_folder (str): matcher 配置文件夹路径
             matchers (dict[str, MultiRegexMatcher]): matcher 字典
             metadata (dict[str, dict[str, Optional[dict]]]): metadata 字典
-
-    Returns:
-        str: 输出信息
+        logger (Optional[logging.Logger], optional): 日志记录器
     """
     if not (path.endswith('.json') and os.path.basename(path)[0] != '.'):
         return
@@ -215,11 +232,16 @@ def file_processor_matchers_update(
             config: dict = json.load(f)
         if not config.get('targets'):
             return None
+        set_auto_mark_for_targets(config['targets'])
         
         # load matcher
         cache_size = config.get('cache_size')
         literal = config.get('literal', False)
         success = False
+        
+        text = f'matcher "{name}" start compile ...'
+        logger.info(text) if logger else print(text)
+        
         if name in matchers:
             success |= matchers[name].compile(config['targets'], literal=literal)
             success |= matchers[name].reset_cache(cache_size, force=False)
@@ -253,7 +275,8 @@ def file_processor_matchers_update(
             actual_opts.append('del db_metadata')
             
     if actual_opts:
-        return f'file_processor_matchers_update: "{name}" {opt}: {actual_opts}'
+        text = f'file_processor_matchers_update: "{name}" {opt}: {actual_opts}'
+        logger.info(text) if logger else print(text)
 
 
 matcher_config_example = {
@@ -352,12 +375,7 @@ def update_matchers_folder(
     for root, _, files in os.walk(matchers_config_folder):
         for file in files:
             path = os.path.join(root, file)
-            s = file_processor_matchers_update(path, 'created', context)
-            if s:
-                if logger:
-                    logger.info(s)
-                else:
-                    print(s)
+            file_processor_matchers_update(path, 'created', context, logger)
     if logger:
         logger.info(f'matchers_folder: init matchers: {list(matchers)}')
     else:

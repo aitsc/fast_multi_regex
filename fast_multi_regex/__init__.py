@@ -16,6 +16,7 @@ from .utils import (
     sync_request,
     matcher_config_example,
     setup_logger,
+    set_auto_mark_for_targets,
 )
 from .api_types import (
     OneTargetExt,

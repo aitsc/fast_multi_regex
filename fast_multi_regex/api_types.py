@@ -36,6 +36,7 @@ class OneQuery(BaseModel):
     is_sort: bool = Field(True, description='是否按照正则库中出现顺序返回，适用于 method=all/strict')
     detailed_level: Literal[1, 2, 3] = Field(2, description='1: 只返回 mark, 2: 返回 mark 和出现次数, 3: 返回详细 OneMatch')
     match_top_n: int = Field(0, description='匹配元素次数限制, 小于等于 0 代表不限制，适用于 method=all')
+    allowed_return_meta_keys: Optional[list[str]] = Field(None, description='允许返回的 meta 的根 key 列表，None 代表全部返回')
 
 
 class RespGeneral(BaseModel):

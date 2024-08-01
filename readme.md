@@ -12,12 +12,12 @@ fast_multi_regex_server
 
 构建正则库，即增删改 matchers_config_folder 中的 json 文件（允许子文件夹嵌套，不能以 . 开头），例子参数解释：
 ```json
-{ // 一个正则库
+{ // 一个正则库, 超过 10 万不重复的 regex 建议拆分成多个库
     "cache_size": 128, // match 接口查询的缓存大小
     "literal": false, // 是否使用字面量匹配（用于正则当作普通字符更快匹配，但是大部分flag失效）
     "targets": [ // 如果要删除一个库不能直接将 targets 置空，而是要删除文件，空 targets 的配置不会被解析
         {
-            "mark": "example", // 正则组名称，不能重复
+            "mark": "example", // 正则组名称，不能重复。不提供或为空则默认为 auto_i，i 为 targets 中所在的索引，从1开始
             "regexs": [
                 {
                     "expression": "例子", // 正则表达式, 或编号的布尔组合（搭配HS_FLAG_COMBINATION标志，支持 & | ~ () 运算符，编号为正则在 regexs 中的索引号，或者 mark.索引号。例如 "(0|1)&2" 或 "test.0|test.1&test.2"）

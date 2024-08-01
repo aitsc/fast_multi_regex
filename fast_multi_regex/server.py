@@ -49,8 +49,8 @@ def app_server():
     parser.add_argument("--log_config", type=str, default="", help="日志配置文件路径, 为空则使用默认配置")
     parser.add_argument("--matchers_folder", type=str, default="data/matchers", help="匹配器保存的文件夹, 没有则自动创建")
     parser.add_argument("--matchers_config_folder", type=str, default="data/matchers_config", help="匹配器配置文件夹，将自动把配置文件转换为匹配器, 没有则自动创建")
-    parser.add_argument("--matchers_api_update_delay", type=int, default=3, help="API 进程读取更新匹配器的延迟（秒），防止频繁加载")
-    parser.add_argument("--matchers_file_update_delay", type=int, default=5, help="解析匹配器配置的进程的解析延迟（秒），配置文件这么多秒后不再修改才会更新到匹配器文件夹")
+    parser.add_argument("--matchers_api_update_delay", type=int, default=2, help="API 进程读取更新匹配器的延迟（秒），防止频繁加载")
+    parser.add_argument("--matchers_file_update_delay", type=int, default=3, help="解析匹配器配置的进程的解析延迟（秒），配置文件这么多秒后不再修改才会更新到匹配器文件夹")
     parser.add_argument("--background_log_file", type=str, default=None, help="后台加载正则库的日志文件路径, 可用于记录正则配置的行为和报错原因，为空则直接print输出")
     with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'version.txt'), 'r') as f:
         version = f.read().strip()
