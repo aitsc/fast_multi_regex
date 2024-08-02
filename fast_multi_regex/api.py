@@ -286,7 +286,7 @@ async def get_metrics():
                     min_matchers_metrics[metric] = value
                     
     for metric, value in total_matchers_metrics.items():
-        name = f'fmrs_matchers_{metric}_total'
+        name = f'fmrs_matchers_{metric}_num'
         description = matchers_metrics_description[metric]
         if name not in global_metric_wrapper:
             global_metric_wrapper[name] = Gauge(name, f"总数: {description}", ['process_index']).labels(process_index)
