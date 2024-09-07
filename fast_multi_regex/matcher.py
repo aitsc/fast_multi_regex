@@ -344,22 +344,23 @@ class MultiRegexMatcher:
                     assert r.flag & hyperscan.HS_FLAG_SINGLEMATCH == 0, f"{t.mark}-{no}.flag: Can not contain HS_FLAG_SINGLEMATCH"
                     self._mark_has_match_count_limit[t.mark] = True
                 ext = r.flag_ext.to_ext() if r.flag_ext and not literal else hyperscan.ExpressionExt(flags=0)
-                if (r.expression, r.flag, ext) in expr_flag_ext_id:
-                    _id = expr_flag_ext_id[(r.expression, r.flag, ext)]
+                # 替换 expression 中的编号
+                expression = r.expression
+                if r.flag & hyperscan.HS_FLAG_COMBINATION:
+                    expression = replace(
+                        expression_id_pattern, 
+                        lambda s: self._replace_expression_id(s, t.mark, no, mark_no_id),
+                        r.expression)
+                    expression = expression.replace(' ', '')  # 去除空格导致的重复
+                # 构建 _id
+                if (expression, r.flag, ext) in expr_flag_ext_id:
+                    _id = expr_flag_ext_id[(expression, r.flag, ext)]
                 else:
-                    _id = expr_flag_ext_id[(r.expression, r.flag, ext)] = len(expr_flag_ext_id)
+                    _id = expr_flag_ext_id[(expression, r.flag, ext)] = len(expr_flag_ext_id)
                     ids.append(_id)
                     flags.append(r.flag)
                     exts.append(ext)
-                    # 替换 expression 中的编号
-                    if r.flag & hyperscan.HS_FLAG_COMBINATION:
-                        expression = replace(
-                            expression_id_pattern, 
-                            lambda s: self._replace_expression_id(s, t.mark, no, mark_no_id),
-                            r.expression)
-                        expressions.append(expression.encode('utf-8'))
-                    else:
-                        expressions.append(r.expression.encode('utf-8'))
+                    expressions.append(expression.encode('utf-8'))
                     # 记录信息
                     if r.expression not in expression_find_regexs:
                         expression_find_regexs[r.expression] = [OneFindRegex(regex_id=_id, regex=r)]
