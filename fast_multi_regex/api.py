@@ -29,7 +29,7 @@ from .api_types import (
 
 api_tokens = set(os.getenv('FAST_MULTI_REGEX_API_TOKENS', 'test').split(','))
 matchers_folder = os.getenv('FAST_MULTI_REGEX_MATCHERS_FOLDER', 'data/matchers')
-matchers_api_update_delay = int(os.getenv('FAST_MULTI_REGEX_MATCHERS_API_UPDATE_DELAY', 3))
+matchers_api_update_delay = float(os.getenv('FAST_MULTI_REGEX_MATCHERS_API_UPDATE_DELAY', 3))
 matcher_logger = logging.getLogger('matcher')
 process_index = get_process_index()
 global_matchers: dict[str, MultiRegexMatcher] = {}
