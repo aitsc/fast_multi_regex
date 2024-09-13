@@ -13,3 +13,4 @@ pyyaml
 toml
 jsoncomment
 prometheus-client
+psutil

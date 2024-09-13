@@ -39,6 +39,7 @@ setup(
         'toml',
         'jsoncomment',
         'prometheus-client',
+        'psutil',
     ],
     entry_points={  # 打包到bin
         'console_scripts': [
