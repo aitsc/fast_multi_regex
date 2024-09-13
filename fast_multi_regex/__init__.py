@@ -18,6 +18,7 @@ from .utils import (
     setup_logger,
     set_auto_mark_for_targets,
     load_config,
+    save_config,
     get_model_info,
     get_process_index,
 )

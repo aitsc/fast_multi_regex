@@ -103,6 +103,37 @@ def load_config(path: str) -> Optional[dict]:
     return config
 
 
+def save_config(config: dict, path: str) -> bool:
+    """保存配置文件，支持 json, jsonc, yaml, yml, toml
+
+    Args:
+        config (dict): 要保存的配置内容
+        path (str): 配置文件路径
+
+    Returns:
+        bool: 保存成功返回 True，否则返回 False
+    """
+    if not isinstance(config, dict):
+        raise ValueError(f"config must be a dictionary: {config}")
+    
+    suffix = os.path.splitext(path)[1]
+    if suffix not in {'.json', '.jsonc', '.yaml', '.yml', '.toml'}:
+        raise ValueError(f"Unsupported file extension: {suffix}")
+
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            if suffix == '.json' or suffix == '.jsonc':
+                json.dump(config, f, ensure_ascii=False, indent=4)
+            elif suffix in {'.yaml', '.yml'}:
+                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+            elif suffix == '.toml':
+                toml.dump(config, f)
+        return True
+    except Exception as e:
+        print(f"Failed to save config: {e}")
+        return False
+
+
 def get_model_info(model: Union[type[BaseModel], BaseModel]) -> dict[str, dict[str, Any]]:
     """获取 Pydantic 模型的字段信息
     
