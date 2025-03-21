@@ -20,7 +20,7 @@ fast_multi_regex_server
             "mark": "example", // 正则组名称，不能重复。不提供或为空则默认为 auto_i，i 为 targets 中所在的索引，从1开始
             "regexs": [
                 {
-                    "expression": "例子", // 正则表达式, 或编号的布尔组合（搭配HS_FLAG_COMBINATION标志，支持 & | ~ () 运算符，编号为正则在 regexs 中的索引号，或者 mark.索引号。例如 "(0|1)&2" 或 "test.0|test.1&test.2"）
+                    "expression": "例子", // 正则表达式, 或编号的布尔组合（搭配HS_FLAG_COMBINATION标志，支持 & | ! () 运算符，编号为正则在 regexs 中的索引号，或者 mark.索引号。例如 "(0|1)&2" 或 "test.0|test.1&test.2"）
                     "flag": 40, // hyperscan flag，例如 40 代表一个正则只匹配一次，并且以字符而不是字节为单位匹配
                     "flag_ext": { // 扩展标志，null 代表不使用
                         "min_offset": null, // 最小偏移量, 匹配的结束位置大于等于这个
